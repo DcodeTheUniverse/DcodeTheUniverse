@@ -535,11 +535,11 @@ export function GameScreen() {
     return (
       <div class="flex flex-1 flex-col gap-5">
         <Confetti />
-        <Card
-          tone="raised"
+        {/* Outcome is stated in words; the colour is only reinforcement. */}
+        <div
           class={cx(
-            'animate-pop text-center',
-            informedWon() ? 'bg-lime text-ink' : 'bg-danger text-ink',
+            'animate-pop rounded-[var(--radius-card)] p-5 text-center text-ink shadow-pop',
+            informedWon() ? 'bg-lime' : 'bg-danger',
           )}
         >
           <p class="text-sm font-black tracking-widest uppercase">
@@ -549,7 +549,7 @@ export function GameScreen() {
             {headline()}
           </h2>
           <p class="mt-2 text-lg font-semibold">{explanation()}</p>
-        </Card>
+        </div>
 
         <div class="grid grid-cols-2 gap-3">
           <Card>

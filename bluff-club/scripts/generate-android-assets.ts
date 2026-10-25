@@ -31,23 +31,52 @@ function splash(w: number, h: number): string {
 async function main() {
   const browser = await chromium.launch();
   const page = await browser.newPage({ deviceScaleFactor: 1 });
-  const shot = async (content: string, w: number, h: number, out: string, omitBackground = true) => {
+  const shot = async (
+    content: string,
+    w: number,
+    h: number,
+    out: string,
+    omitBackground = true,
+  ) => {
     await page.setViewportSize({ width: w, height: h });
     await page.setContent(content);
     mkdirSync(dirname(out), { recursive: true });
-    writeFileSync(out, await page.screenshot({ omitBackground, clip: { x: 0, y: 0, width: w, height: h } }));
+    writeFileSync(
+      out,
+      await page.screenshot({ omitBackground, clip: { x: 0, y: 0, width: w, height: h } }),
+    );
   };
 
   for (const [name, scale] of Object.entries(densities)) {
     const dir = join(res, `mipmap-${name}`);
     const legacy = Math.round(48 * scale);
     const fg = Math.round(108 * scale);
-    await shot(html(svgBox(icon, legacy, legacy, 'border-radius:18%;overflow:hidden'), legacy, legacy), legacy, legacy, join(dir, 'ic_launcher.png'));
-    await shot(html(svgBox(icon, legacy, legacy, 'border-radius:50%;overflow:hidden'), legacy, legacy), legacy, legacy, join(dir, 'ic_launcher_round.png'));
-    await shot(html(svgBox(foreground, fg, fg), fg, fg), fg, fg, join(dir, 'ic_launcher_foreground.png'));
+    await shot(
+      html(svgBox(icon, legacy, legacy, 'border-radius:18%;overflow:hidden'), legacy, legacy),
+      legacy,
+      legacy,
+      join(dir, 'ic_launcher.png'),
+    );
+    await shot(
+      html(svgBox(icon, legacy, legacy, 'border-radius:50%;overflow:hidden'), legacy, legacy),
+      legacy,
+      legacy,
+      join(dir, 'ic_launcher_round.png'),
+    );
+    await shot(
+      html(svgBox(foreground, fg, fg), fg, fg),
+      fg,
+      fg,
+      join(dir, 'ic_launcher_foreground.png'),
+    );
     // Android 12+ splash icon: 240dp canvas with the mark inside the 160dp circle.
     const sp = Math.round(240 * scale);
-    await shot(html(svgBox(foreground, sp, sp), sp, sp), sp, sp, join(res, `drawable-${name}`, 'ic_splash_mark.png'));
+    await shot(
+      html(svgBox(foreground, sp, sp), sp, sp),
+      sp,
+      sp,
+      join(res, `drawable-${name}`, 'ic_splash_mark.png'),
+    );
   }
 
   const sizes: [string, number, number][] = [
@@ -63,10 +92,17 @@ async function main() {
     ['drawable-land-xxhdpi', 1600, 960],
     ['drawable-land-xxxhdpi', 1920, 1280],
   ];
-  for (const [dir, w, h] of sizes) await shot(html(splash(w, h), w, h, '#101216'), w, h, join(res, dir, 'splash.png'), false);
+  for (const [dir, w, h] of sizes)
+    await shot(html(splash(w, h), w, h, '#101216'), w, h, join(res, dir, 'splash.png'), false);
 
   // Store listing icon (512×512, no transparency) for Play Console.
-  await shot(html(svgBox(icon, 512, 512), 512, 512, '#101216'), 512, 512, join(root, 'docs/store/icon-512.png'), false);
+  await shot(
+    html(svgBox(icon, 512, 512), 512, 512, '#101216'),
+    512,
+    512,
+    join(root, 'docs/store/icon-512.png'),
+    false,
+  );
   await browser.close();
   console.log('✓ Android icons, splash screens and store icon generated.');
 }
