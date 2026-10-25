@@ -156,7 +156,7 @@ fun formatSize(bytes: Long): String = when {
 private fun subtitle(n: Node, snap: VaultSnapshot): String {
     val date = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(n.modifiedAt))
     return when (n.kind) {
-        NodeKind.FOLDER -> "${snap.childrenOf(n.id).size} items"
+        NodeKind.FOLDER -> snap.childrenOf(n.id).size.let { c -> "$c item${if (c == 1) "" else "s"}" }
         NodeKind.PASSWORD -> n.password?.username?.ifBlank { null }?.let { "$it · $date" } ?: date
         else -> "${formatSize(n.size)} · $date"
     }
