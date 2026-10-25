@@ -74,14 +74,22 @@ class VaultKeystore(private val context: Context) {
 
     private fun key(alias: String): SecretKey = ks.getKey(alias, null) as? SecretKey ?: throw IllegalStateException("Device key missing")
 
-    /** Encrypts with the device-bound (non-biometric) key. Returns iv + ciphertext. */
-    fun encryptDevice(plain: ByteArray): Pair<ByteArray, ByteArray> {
-        val c = Cipher.getInstance(AES).apply { init(Cipher.ENCRYPT_MODE, create(CIRCLE_ALIAS, biometric = false)) }
-        return c.iv to c.doFinal(plain)
+    /**
+     * Encrypts with a fresh device-bound (non-biometric) key under a new alias, so the previous slot keeps
+     * working until the caller has persisted the new one. Returns (alias, iv, ciphertext).
+     */
+    fun encryptDevice(plain: ByteArray): Triple<String, ByteArray, ByteArray> {
+        val alias = "$CIRCLE_ALIAS.${com.dcode.crypto.Bytes.hex(com.dcode.crypto.Bytes.random(6))}"
+        val c = Cipher.getInstance(AES).apply { init(Cipher.ENCRYPT_MODE, create(alias, biometric = false)) }
+        return Triple(alias, c.iv, c.doFinal(plain))
     }
 
-    fun decryptDevice(iv: ByteArray, ct: ByteArray): ByteArray =
-        Cipher.getInstance(AES).apply { init(Cipher.DECRYPT_MODE, key(CIRCLE_ALIAS), GCMParameterSpec(128, iv)) }.doFinal(ct)
+    fun decryptDevice(alias: String, iv: ByteArray, ct: ByteArray): ByteArray =
+        Cipher.getInstance(AES).apply { init(Cipher.DECRYPT_MODE, key(alias), GCMParameterSpec(128, iv)) }.doFinal(ct)
+
+    fun wipeCircleKeys() {
+        runCatching { ks.aliases().toList().filter { it.startsWith(CIRCLE_ALIAS) }.forEach(::delete) }
+    }
 
     fun biometricEncryptCipher(): Cipher = Cipher.getInstance(AES).apply { init(Cipher.ENCRYPT_MODE, create(BIO_ALIAS, biometric = true)) }
 
@@ -89,7 +97,7 @@ class VaultKeystore(private val context: Context) {
         Cipher.getInstance(AES).apply { init(Cipher.DECRYPT_MODE, key(BIO_ALIAS), GCMParameterSpec(128, iv)) }
 
     fun wipe() {
-        delete(CIRCLE_ALIAS)
+        wipeCircleKeys()
         delete(BIO_ALIAS)
     }
 

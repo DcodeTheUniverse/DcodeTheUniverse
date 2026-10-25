@@ -119,7 +119,8 @@ fun EditorScreen(session: VaultSession, id: String, onBack: () -> Unit) {
             launch { flow.collect { dirty = true } }
         }.debounce(650).collect { t ->
             withContext(Dispatchers.IO) { runCatching { session.saveText(id, t) } }
-            dirty = false
+            // Keystrokes typed during the save keep the note dirty so a lock-time flush still writes them.
+            if (state.text.toString() == t) dirty = false
             savedAt = System.currentTimeMillis()
         }
     }

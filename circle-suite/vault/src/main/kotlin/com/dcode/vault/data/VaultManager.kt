@@ -75,9 +75,23 @@ class VaultManager(private val context: Context) {
     private val _state = MutableStateFlow<VaultState>(VaultState.Loading)
     val state: StateFlow<VaultState> = _state.asStateFlow()
 
-    /** Set while Vault deliberately hands focus to Circle ID or a file picker, so auto-lock doesn't fire mid-flow. */
+    /**
+     * Set while Vault deliberately hands focus to Circle ID or a file picker, so auto-lock doesn't fire mid-flow.
+     * The hold expires after [HOLD_MAX_MS] so abandoning that flow can't leave the vault open indefinitely.
+     */
     @Volatile
     var holdLock = false
+        set(value) {
+            field = value
+            holdSince = SystemClock.elapsedRealtime()
+        }
+    private var holdSince = 0L
+    private val holdActive: Boolean get() = holdLock && SystemClock.elapsedRealtime() - holdSince < HOLD_MAX_MS
+    private var lockJob: kotlinx.coroutines.Job? = null
+
+    /** The in-flight Circle ID request (with its one-time ECIES key). Process-scoped so it survives activity recreation. */
+    @Volatile
+    var pendingCircle: CircleClient.Pending? = null
 
     private var backgroundedAt = 0L
 
@@ -97,13 +111,24 @@ class VaultManager(private val context: Context) {
     fun onBackground() {
         backgroundedAt = SystemClock.elapsedRealtime()
         session?.let { s -> scope.launch { runCatching { s.flushIndex() } } }
-        if (!holdLock && prefs.autoLockSeconds == 0) lock()
+        val limit = prefs.autoLockSeconds
+        if (!holdActive && limit == 0) {
+            lock()
+            return
+        }
+        // Lock on a timer too, so the key doesn't sit in memory for the whole time Vault is in the background.
+        lockJob?.cancel()
+        lockJob = scope.launch {
+            kotlinx.coroutines.delay(if (holdActive) HOLD_MAX_MS else limit * 1000L)
+            kotlinx.coroutines.withContext(Dispatchers.Main) { holdLock = false; lock() }
+        }
     }
 
     fun onForeground() {
+        lockJob?.cancel()
         val away = SystemClock.elapsedRealtime() - backgroundedAt
         val limit = prefs.autoLockSeconds
-        if (!holdLock && backgroundedAt > 0 && limit >= 0 && away > limit * 1000L) lock()
+        if (!holdActive && backgroundedAt > 0 && away > limit * 1000L) lock()
         backgroundedAt = 0
     }
 
@@ -184,7 +209,7 @@ class VaultManager(private val context: Context) {
         when (val r = circle.complete(p, response, Bytes.unb64(pairing.identityPublicKey), pairing.circleCertSha256)) {
             is CircleClient.Result.Denied -> r.message
             is CircleClient.Result.Released -> try {
-                val inner = keystore.decryptDevice(Bytes.unb64(slot.iv), Bytes.unb64(slot.wrapped))
+                val inner = keystore.decryptDevice(slot.keyAlias, Bytes.unb64(slot.iv), Bytes.unb64(slot.wrapped))
                 val dek = KeySlots.circleInnerUnwrap(inner, r.secret, header.vaultId)
                 Bytes.wipe(inner, r.secret)
                 store.verifyHeader(dek)
@@ -208,14 +233,17 @@ class VaultManager(private val context: Context) {
                 try {
                     val body = store.readHeaderBody()
                     val inner = KeySlots.circleInnerWrap(dek, r.secret, body.vaultId)
-                    val (iv, wrapped) = keystore.encryptDevice(inner)
+                    val oldAlias = store.readHeaderBody().device?.keyAlias
+                    val (alias, iv, wrapped) = keystore.encryptDevice(inner)
                     Bytes.wipe(inner, r.secret)
                     store.updateHeader(dek) {
                         it.copy(
-                            device = DeviceSlot(DeviceSlotMode.CIRCLE, VaultKeystore.CIRCLE_ALIAS, Bytes.b64(iv), Bytes.b64(wrapped)),
+                            device = DeviceSlot(DeviceSlotMode.CIRCLE, alias, Bytes.b64(iv), Bytes.b64(wrapped)),
                             circle = CirclePairing(r.assertion.circleId, r.assertion.identityPublicKey, r.circleCert, System.currentTimeMillis()),
                         )
                     }
+                    // Only now that the new slot is safely on disk is the previous key destroyed.
+                    if (oldAlias != null && oldAlias != alias) keystore.delete(oldAlias)
                     keystore.delete(VaultKeystore.BIO_ALIAS)
                     null
                 } catch (e: Exception) {
@@ -237,7 +265,7 @@ class VaultManager(private val context: Context) {
             store.updateHeader(dek) {
                 it.copy(device = DeviceSlot(DeviceSlotMode.BIOMETRIC, VaultKeystore.BIO_ALIAS, Bytes.b64(cipher.iv), Bytes.b64(wrapped)), circle = null)
             }
-            keystore.delete(VaultKeystore.CIRCLE_ALIAS)
+            keystore.wipeCircleKeys()
             null
         } catch (e: Exception) {
             "Couldn't enable fingerprint unlock: ${e.message}"
@@ -293,5 +321,6 @@ class VaultManager(private val context: Context) {
     companion object {
         /** 64 MiB, 3 passes: ~1–2 s on a modern phone, prohibitively expensive to brute-force on GPUs. */
         val ARGON = Argon2Params(memoryKiB = 64 * 1024, iterations = 3, parallelism = 2)
+        const val HOLD_MAX_MS = 5 * 60_000L
     }
 }

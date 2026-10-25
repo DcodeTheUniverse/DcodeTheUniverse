@@ -82,8 +82,8 @@ fun VerifyScreen(vm: VerifyViewModel, onDone: () -> Unit) {
             when (step) {
                 is VStep.Consent -> ConsentStep(step.req, vm)
                 VStep.Fingerprint -> FingerprintStep(vm)
-                VStep.Face -> FaceStep(vm)
-                VStep.Pulse -> PulseStep(vm)
+                VStep.Face -> FaceStep(vm, onDone)
+                VStep.Pulse -> PulseStep(vm, onDone)
                 VStep.Working -> WorkingStep()
                 is VStep.Result -> ResultStep(step, onDone)
             }
@@ -152,7 +152,7 @@ private fun FingerprintStep(vm: VerifyViewModel) {
 }
 
 @Composable
-private fun FaceStep(vm: VerifyViewModel) {
+private fun FaceStep(vm: VerifyViewModel, onDone: () -> Unit) {
     val p = Circle.palette
     val state by vm.liveness.collectAsState()
     Column(Modifier.fillMaxSize().padding(horizontal = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -188,7 +188,7 @@ private fun FaceStep(vm: VerifyViewModel) {
             }
         }
         Spacer(Modifier.weight(1f))
-        PillButton("Cancel", onClick = { vm.cancel() }, filled = false, modifier = Modifier.padding(bottom = 24.dp))
+        PillButton("Cancel", onClick = { vm.cancel(); onDone() }, filled = false, modifier = Modifier.padding(bottom = 24.dp))
     }
 }
 
@@ -215,7 +215,7 @@ private fun ChallengeArrow(state: LivenessSession.State?) {
 }
 
 @Composable
-private fun PulseStep(vm: VerifyViewModel) {
+private fun PulseStep(vm: VerifyViewModel, onDone: () -> Unit) {
     val p = Circle.palette
     val s by vm.pulse.collectAsState()
     CameraPermissionGate("The rear camera and flash measure the pulse in your fingertip.") {
@@ -241,7 +241,7 @@ private fun PulseStep(vm: VerifyViewModel) {
             Spacer(Modifier.height(8.dp))
             Caption("Light passing through your finger pulses with your heartbeat — proof of living tissue.")
             Spacer(Modifier.weight(1f))
-            PillButton("Cancel", onClick = { vm.cancel() }, filled = false, modifier = Modifier.padding(bottom = 24.dp))
+            PillButton("Cancel", onClick = { vm.cancel(); onDone() }, filled = false, modifier = Modifier.padding(bottom = 24.dp))
         }
     }
 }

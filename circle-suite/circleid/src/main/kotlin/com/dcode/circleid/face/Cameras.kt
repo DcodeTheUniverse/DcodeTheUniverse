@@ -76,10 +76,11 @@ fun FaceCamera(analyzer: FaceAnalyzer, modifier: Modifier = Modifier) {
     DisposableEffect(analyzer) {
         val executor = Executors.newSingleThreadExecutor()
         val future = ProcessCameraProvider.getInstance(context)
-        var provider: ProcessCameraProvider? = null
+        var disposed = false
+        var bound: Pair<ProcessCameraProvider, Array<androidx.camera.core.UseCase>>? = null
         future.addListener({
+            if (disposed) return@addListener
             val p = future.get()
-            provider = p
             val preview = Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
             val analysis = ImageAnalysis.Builder()
                 .setResolutionSelector(
@@ -91,13 +92,16 @@ fun FaceCamera(analyzer: FaceAnalyzer, modifier: Modifier = Modifier) {
                 .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
                 .build()
                 .also { it.setAnalyzer(executor, analyzer) }
+            // Only this screen's use cases are bound/unbound, so an overlapping screen transition can't
+            // tear down the next screen's camera.
             runCatching {
-                p.unbindAll()
                 p.bindToLifecycle(owner, CameraSelector.DEFAULT_FRONT_CAMERA, preview, analysis)
+                bound = p to arrayOf(preview, analysis)
             }
         }, ContextCompat.getMainExecutor(context))
         onDispose {
-            provider?.unbindAll()
+            disposed = true
+            bound?.let { (p, cases) -> p.unbind(*cases) }
             executor.shutdown()
             analyzer.close()
         }
@@ -115,11 +119,12 @@ fun TorchCamera(onFrame: (PulseFrame) -> Unit, modifier: Modifier = Modifier) {
     DisposableEffect(Unit) {
         val executor = Executors.newSingleThreadExecutor()
         val future = ProcessCameraProvider.getInstance(context)
-        var provider: ProcessCameraProvider? = null
+        var disposed = false
+        var bound: Pair<ProcessCameraProvider, ImageAnalysis>? = null
         var camera: Camera? = null
         future.addListener({
+            if (disposed) return@addListener
             val p = future.get()
-            provider = p
             val analysis = ImageAnalysis.Builder()
                 .setResolutionSelector(
                     ResolutionSelector.Builder()
@@ -138,14 +143,17 @@ fun TorchCamera(onFrame: (PulseFrame) -> Unit, modifier: Modifier = Modifier) {
                 }
             }
             runCatching {
+                // The front camera may still be bound by the outgoing screen; release it so the rear one can open.
                 p.unbindAll()
                 camera = p.bindToLifecycle(owner, CameraSelector.DEFAULT_BACK_CAMERA, analysis)
+                bound = p to analysis
                 camera?.cameraControl?.enableTorch(true)
             }
         }, ContextCompat.getMainExecutor(context))
         onDispose {
+            disposed = true
             runCatching { camera?.cameraControl?.enableTorch(false) }
-            provider?.unbindAll()
+            bound?.let { (p, a) -> p.unbind(a) }
             executor.shutdown()
         }
     }

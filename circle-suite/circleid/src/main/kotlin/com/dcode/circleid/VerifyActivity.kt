@@ -41,7 +41,8 @@ class VerifyActivity : FragmentActivity() {
         harden(this)
         enableEdgeToEdge()
 
-        val ext = parse()
+        // After a configuration change the ViewModel already holds the accepted request.
+        val ext = parse(checkFreshness = savedInstanceState == null)
         if (ext == null) {
             setResult(Activity.RESULT_CANCELED)
             finish()
@@ -92,7 +93,7 @@ class VerifyActivity : FragmentActivity() {
         }
     }
 
-    private fun parse(): ExternalRequest? {
+    private fun parse(checkFreshness: Boolean): ExternalRequest? {
         val caller = callingPackage ?: return null
         val bytes = intent.getByteArrayExtra(CircleContract.EXTRA_REQUEST) ?: return null
         val req: CircleRequest = runCatching { CircleCodec.decodeRequest(bytes) }.getOrNull() ?: return null
@@ -103,7 +104,7 @@ class VerifyActivity : FragmentActivity() {
         }
         if (req.kind != expectedKind || req.version != CircleContract.PROTOCOL_VERSION) return null
         if (req.clientPackage != caller) return null
-        if (abs(System.currentTimeMillis() - req.issuedAt) > 5 * 60_000) return null
+        if (checkFreshness && abs(System.currentTimeMillis() - req.issuedAt) > 5 * 60_000) return null
         if (runCatching { Bytes.unb64(req.nonce).size }.getOrDefault(0) != CircleContract.NONCE_SIZE) return null
         if (runCatching { Ecies.decodePublicKey(Bytes.unb64(req.ephemeralKey)) }.isFailure) return null
         val cert = CallerIdentity.certSha256(this, caller) ?: return null

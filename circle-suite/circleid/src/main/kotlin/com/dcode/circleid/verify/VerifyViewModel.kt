@@ -128,10 +128,32 @@ class VerifyViewModel(app: Application) : AndroidViewModel(app) {
         if (approved) step = VStep.Fingerprint else cancel()
     }
 
+    /** True once an outcome exists: nothing may change the result after that (first outcome wins). */
+    private val finished: Boolean get() = _outcome.value != null || step is VStep.Result
+
+    private fun settle(o: Outcome) {
+        _outcome.compareAndSet(null, o)
+    }
+
+    /** Stops the flow for good: cameras stop (step changes), the unlocked profile is wiped, nothing is released. */
     fun cancel() {
-        if (_outcome.value != null) return
+        if (finished) return
+        timeout?.cancel()
         record(AssertionStatus.CANCELLED, 0, "Cancelled")
-        _outcome.value = Outcome(false, null)
+        closeSession()
+        step = VStep.Result(false, "Cancelled", "Nothing was shared.", null, emptyList())
+        settle(Outcome(false, null))
+    }
+
+    private var timeout: kotlinx.coroutines.Job? = null
+
+    /** Timeouts run on a timer, so a camera that never delivers frames can't hang a step. */
+    private fun armTimeout(ms: Long, onExpire: () -> Unit) {
+        timeout?.cancel()
+        timeout = viewModelScope.launch {
+            kotlinx.coroutines.delay(ms)
+            onExpire()
+        }
     }
 
     // ------------------------------------------------------------------ step 1: fingerprint
@@ -152,6 +174,7 @@ class VerifyViewModel(app: Application) : AndroidViewModel(app) {
             subtitle = "Step 1 of $totalSteps · Fingerprint",
             crypto = BiometricPrompt.CryptoObject(cipher),
         )
+        if (finished) return
         when (result) {
             is BioResult.Success -> {
                 val c = result.crypto?.cipher
@@ -184,10 +207,19 @@ class VerifyViewModel(app: Application) : AndroidViewModel(app) {
         challenges = LivenessSession.randomChallenges(prefs.challengeCount)
         synchronized(lock) {
             matchScores.clear()
-            live = LivenessSession(challenges, prefs.strictness.threshold, startMs = SystemClock.elapsedRealtime())
+            // The liveness clock starts with the first camera frame, not before permission prompts and warm-up.
+            live = null
         }
-        _liveness.value = live?.state
+        _liveness.value = null
         step = VStep.Face
+        armTimeout(60_000) {
+            if (step != VStep.Face) return@armTimeout
+            val st = synchronized(lock) { live?.state }
+            finishFace(
+                st?.copy(phase = LivenessSession.Phase.Failed, failure = "Timed out — no usable camera frames")
+                    ?: LivenessSession.State(LivenessSession.Phase.Failed, 0, null, "", 0f, 0f, 0f, 0, "Camera never started"),
+            )
+        }
     }
 
     fun newFaceAnalyzer(): FaceAnalyzer {
@@ -205,7 +237,8 @@ class VerifyViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun onFaceFrame(frame: FaceFrame) {
         val state = synchronized(lock) {
-            val l = live ?: return
+            if (step != VStep.Face) return
+            val l = live ?: LivenessSession(challenges, prefs.strictness.threshold, startMs = SystemClock.elapsedRealtime()).also { live = it }
             if (l.state.phase == LivenessSession.Phase.Done || l.state.phase == LivenessSession.Phase.Failed) return
             frame.observation?.matchScore?.let { matchScores.add(it) }
             l.onFrame(frame.observation, SystemClock.elapsedRealtime())
@@ -217,7 +250,8 @@ class VerifyViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun finishFace(state: LivenessSession.State) {
-        if (step != VStep.Face) return
+        if (step != VStep.Face || finished) return
+        timeout?.cancel()
         val threshold = prefs.strictness.threshold
         val scores = synchronized(lock) { matchScores.toList() }
         val good = scores.filter { it >= threshold }
@@ -241,6 +275,7 @@ class VerifyViewModel(app: Application) : AndroidViewModel(app) {
             patches.clear()
             pulseStartedAt = SystemClock.elapsedRealtime()
             step = VStep.Pulse
+            armTimeout(40_000) { finishPulse(pulseAnalyzer.state) }
         } else {
             complete()
         }
@@ -259,12 +294,14 @@ class VerifyViewModel(app: Application) : AndroidViewModel(app) {
         _pulse.value = s
         val elapsed = SystemClock.elapsedRealtime() - pulseStartedAt
         if ((s.locked && s.elapsedSeconds > 7) || elapsed > 35_000) {
+            // The timer in armTimeout covers the case where frames stop arriving altogether.
             viewModelScope.launch(Dispatchers.Main) { finishPulse(s) }
         }
     }
 
     private fun finishPulse(s: PulseAnalyzer.State) {
-        if (step != VStep.Pulse) return
+        if (step != VStep.Pulse || finished) return
+        timeout?.cancel()
         evidence.add(
             Evidence(
                 FactorIds.PULSE, "Pulse (living tissue)", s.locked, s.quality.coerceIn(0.0, 1.0), prefs.requirePulse,
@@ -290,6 +327,7 @@ class VerifyViewModel(app: Application) : AndroidViewModel(app) {
     // ------------------------------------------------------------------ decision
 
     private fun complete() {
+        if (finished) return
         step = VStep.Working
         viewModelScope.launch {
             val ctx = getApplication<Application>()
@@ -303,6 +341,7 @@ class VerifyViewModel(app: Application) : AndroidViewModel(app) {
             )
             val decision = Fusion.decide(evidence, prefs.strictness.threshold)
             val ext = external
+            if (_outcome.value != null) return@launch
             if (ext == null) {
                 record(if (decision.verified) AssertionStatus.VERIFIED else AssertionStatus.REJECTED, decision.assurance, decision.failures.joinToString())
                 step = VStep.Result(
@@ -321,7 +360,7 @@ class VerifyViewModel(app: Application) : AndroidViewModel(app) {
                     if (ok) "Returning to ${ext.callerName}…" else message,
                     decision, evidence.toList(),
                 )
-                _outcome.value = Outcome(ok, response)
+                settle(Outcome(ok, response))
             }
             closeSession()
         }
@@ -399,14 +438,15 @@ class VerifyViewModel(app: Application) : AndroidViewModel(app) {
             val bytes = withContext(Dispatchers.IO) { runCatching { sign(ext, status, message, null, null) }.getOrNull() }
             record(status, 0, message)
             step = VStep.Result(false, "Not paired", "$message. Open ${ext.callerName} and pair it with Circle ID first.", null, emptyList())
-            _outcome.value = Outcome(false, bytes)
+            settle(Outcome(false, bytes))
         }
     }
 
     private fun fail(title: String, message: String) {
         record(AssertionStatus.ERROR, 0, message)
+        timeout?.cancel()
         step = VStep.Result(false, title, message, null, evidence.toList())
-        _outcome.value = Outcome(false, null)
+        settle(Outcome(false, null))
         closeSession()
     }
 
@@ -425,6 +465,7 @@ class VerifyViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
+    @Synchronized
     private fun closeSession() {
         session?.close()
         session = null

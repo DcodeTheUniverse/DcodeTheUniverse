@@ -90,15 +90,15 @@ import kotlinx.coroutines.launch
 @Composable
 fun rememberCircleLauncher(onResult: (CircleClient.Pending, ActivityResult) -> Unit): (RequestKind) -> String? {
     val manager = LocalContext.current.vault
-    val pending = remember { mutableStateOf<CircleClient.Pending?>(null) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         manager.holdLock = false
-        pending.value?.let { onResult(it, res) }
-        pending.value = null
+        val p = manager.pendingCircle
+        manager.pendingCircle = null
+        p?.let { onResult(it, res) }
     }
     return { kind ->
         val p = manager.newCircleRequest(kind)
-        pending.value = p
+        manager.pendingCircle = p
         manager.holdLock = true
         try {
             launcher.launch(manager.circle.intent(p))
