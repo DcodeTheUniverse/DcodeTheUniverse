@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Debug builds only: hosts individual screens in UI tests. -->
+        <activity android:name=".TestHostActivity" android:exported="false" android:theme="@style/Theme.Vault" />
+    </application>
+</manifest>
