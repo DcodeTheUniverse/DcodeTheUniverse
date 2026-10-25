@@ -3,7 +3,7 @@ import { type RandomSource, randomId } from '../random';
 export const MIN_PLAYERS = 3;
 export const MAX_PLAYERS = 10;
 /** Measured in user-perceived characters (grapheme clusters), so emoji count as one. */
-export const MAX_NAME_LENGTH = 16;
+export const MAX_NAME_LENGTH = 20;
 
 export type PlayerId = string;
 

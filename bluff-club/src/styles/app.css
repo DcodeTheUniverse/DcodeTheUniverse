@@ -1,0 +1,123 @@
+@import "tailwindcss";
+
+/* Design tokens: dark clubhouse palette. Contrast is verified in tests/unit/contrast.test.ts. */
+@theme {
+  --color-ink: #101216;
+  --color-surface: #1c2029;
+  --color-surface-2: #262b36;
+  --color-line: #3a4150;
+  --color-lime: #c7ff5e;
+  --color-lime-press: #a9e03c;
+  --color-danger: #ff6b6b;
+  --color-cream: #f6f5ef;
+  --color-muted: #adb3c2;
+  --font-sans:
+    system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-display: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  --radius-card: 1.5rem;
+  --shadow-pop: 0 6px 0 0 #0a0b0e;
+  --shadow-pop-sm: 0 3px 0 0 #0a0b0e;
+}
+
+:root {
+  color-scheme: dark;
+  /* Capacitor's SystemBars plugin injects --safe-area-inset-* on Android; browsers use env(). */
+  --sa-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --sa-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+  --sa-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  --sa-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
+}
+
+html,
+body {
+  background: var(--color-ink);
+  color: var(--color-cream);
+  font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
+  text-size-adjust: 100%;
+  overscroll-behavior: none;
+}
+
+body {
+  min-height: 100dvh;
+}
+
+/* Subtle dotted "club wall" texture made from CSS only (no image downloads). */
+.club-bg {
+  background-color: var(--color-ink);
+  background-image: radial-gradient(rgb(255 255 255 / 0.045) 1px, transparent 1.2px);
+  background-size: 22px 22px;
+}
+
+.safe-area {
+  padding-top: max(var(--sa-top), 0.75rem);
+  padding-right: max(var(--sa-right), 1rem);
+  padding-bottom: max(var(--sa-bottom), 1rem);
+  padding-left: max(var(--sa-left), 1rem);
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-lime);
+  outline-offset: 3px;
+  border-radius: 0.75rem;
+}
+
+/* Disable selection/callouts on hold-to-reveal surfaces only. */
+.no-callout {
+  -webkit-touch-callout: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes confetti-fall {
+  0% {
+    transform: translateY(-20vh) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(110vh) rotate(540deg);
+    opacity: 0.9;
+  }
+}
+
+.animate-pop {
+  animation: pop-in 180ms ease-out both;
+}
+
+.confetti-piece {
+  position: absolute;
+  top: 0;
+  width: 10px;
+  height: 14px;
+  border-radius: 3px;
+  animation: confetti-fall 1.6s ease-in forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    /* biome-ignore lint/complexity/noImportantStyles: reduced motion must override component animations */
+    animation-duration: 0.01ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: reduced motion must override component animations */
+    animation-iteration-count: 1 !important;
+    /* biome-ignore lint/complexity/noImportantStyles: reduced motion must override component animations */
+    transition-duration: 0.01ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: reduced motion must override component animations */
+    scroll-behavior: auto !important;
+  }
+  .confetti-piece {
+    display: none;
+  }
+}
