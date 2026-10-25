@@ -1,0 +1,370 @@
+{
+  "id": "wild_card",
+  "name": "Wild Card",
+  "tier": "premium",
+  "contentVersion": 1,
+  "description": "Unusual but understandable objects and situations for confident bluffers.",
+  "previews": ["Lava lamp", "Message in a bottle", "Zombie apocalypse"],
+  "entries": [
+    {
+      "id": "wild_001",
+      "packId": "wild_card",
+      "word": "Lava lamp",
+      "difficulty": "easy"
+    },
+    {
+      "id": "wild_002",
+      "packId": "wild_card",
+      "word": "Fortune cookie",
+      "difficulty": "easy"
+    },
+    {
+      "id": "wild_003",
+      "packId": "wild_card",
+      "word": "Snow globe",
+      "difficulty": "easy"
+    },
+    {
+      "id": "wild_004",
+      "packId": "wild_card",
+      "word": "Whoopee cushion",
+      "difficulty": "easy"
+    },
+    {
+      "id": "wild_005",
+      "packId": "wild_card",
+      "word": "Rubber duck",
+      "difficulty": "easy"
+    },
+    {
+      "id": "wild_006",
+      "packId": "wild_card",
+      "word": "Disco ball",
+      "difficulty": "easy"
+    },
+    {
+      "id": "wild_007",
+      "packId": "wild_card",
+      "word": "Pogo stick",
+      "difficulty": "easy"
+    },
+    {
+      "id": "wild_008",
+      "packId": "wild_card",
+      "word": "Unicycle",
+      "difficulty": "easy"
+    },
+    {
+      "id": "wild_009",
+      "packId": "wild_card",
+      "word": "Trampoline",
+      "difficulty": "easy"
+    },
+    {
+      "id": "wild_010",
+      "packId": "wild_card",
+      "word": "Bouncy castle",
+      "difficulty": "easy"
+    },
+    {
+      "id": "wild_011",
+      "packId": "wild_card",
+      "word": "Garden gnome",
+      "difficulty": "easy"
+    },
+    {
+      "id": "wild_012",
+      "packId": "wild_card",
+      "word": "Hourglass",
+      "difficulty": "easy"
+    },
+    {
+      "id": "wild_013",
+      "packId": "wild_card",
+      "word": "Sandcastle",
+      "difficulty": "easy"
+    },
+    {
+      "id": "wild_014",
+      "packId": "wild_card",
+      "word": "Mermaid",
+      "difficulty": "easy"
+    },
+    {
+      "id": "wild_015",
+      "packId": "wild_card",
+      "word": "Kite",
+      "difficulty": "easy"
+    },
+    {
+      "id": "wild_016",
+      "packId": "wild_card",
+      "word": "Hot-air balloon",
+      "difficulty": "easy"
+    },
+    {
+      "id": "wild_017",
+      "packId": "wild_card",
+      "word": "Treasure chest",
+      "difficulty": "easy"
+    },
+    {
+      "id": "wild_018",
+      "packId": "wild_card",
+      "word": "Hypnotist",
+      "difficulty": "easy"
+    },
+    {
+      "id": "wild_019",
+      "packId": "wild_card",
+      "word": "Magic carpet",
+      "difficulty": "easy"
+    },
+    {
+      "id": "wild_020",
+      "packId": "wild_card",
+      "word": "Wishing well",
+      "difficulty": "easy"
+    },
+    {
+      "id": "wild_021",
+      "packId": "wild_card",
+      "word": "Message in a bottle",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_022",
+      "packId": "wild_card",
+      "word": "Ventriloquist dummy",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_023",
+      "packId": "wild_card",
+      "word": "Lie detector",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_024",
+      "packId": "wild_card",
+      "word": "Escape room",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_025",
+      "packId": "wild_card",
+      "word": "Hall of mirrors",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_026",
+      "packId": "wild_card",
+      "word": "Jetpack",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_027",
+      "packId": "wild_card",
+      "word": "Invisible ink",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_028",
+      "packId": "wild_card",
+      "word": "Mime artist",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_029",
+      "packId": "wild_card",
+      "word": "Time capsule",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_030",
+      "packId": "wild_card",
+      "word": "Sock puppet",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_031",
+      "packId": "wild_card",
+      "word": "Wind chime",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_032",
+      "packId": "wild_card",
+      "word": "Kaleidoscope",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_033",
+      "packId": "wild_card",
+      "word": "Beekeeper suit",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_034",
+      "packId": "wild_card",
+      "word": "Stilt walker",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_035",
+      "packId": "wild_card",
+      "word": "Ice sculpture",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_036",
+      "packId": "wild_card",
+      "word": "Quicksand",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_037",
+      "packId": "wild_card",
+      "word": "Yeti",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_038",
+      "packId": "wild_card",
+      "word": "Mood ring",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_039",
+      "packId": "wild_card",
+      "word": "Robot vacuum",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_040",
+      "packId": "wild_card",
+      "word": "Pillow fort",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_041",
+      "packId": "wild_card",
+      "word": "Origami crane",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_042",
+      "packId": "wild_card",
+      "word": "Zip line",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_043",
+      "packId": "wild_card",
+      "word": "Tightrope",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_044",
+      "packId": "wild_card",
+      "word": "Ghost town",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_045",
+      "packId": "wild_card",
+      "word": "Secret passage",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_046",
+      "packId": "wild_card",
+      "word": "Trapdoor",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_047",
+      "packId": "wild_card",
+      "word": "Shooting star",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_048",
+      "packId": "wild_card",
+      "word": "Tumbleweed",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_049",
+      "packId": "wild_card",
+      "word": "Fake moustache",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_050",
+      "packId": "wild_card",
+      "word": "Spy gadget",
+      "difficulty": "medium"
+    },
+    {
+      "id": "wild_051",
+      "packId": "wild_card",
+      "word": "Zombie apocalypse",
+      "difficulty": "hard"
+    },
+    {
+      "id": "wild_052",
+      "packId": "wild_card",
+      "word": "Alien abduction",
+      "difficulty": "hard"
+    },
+    {
+      "id": "wild_053",
+      "packId": "wild_card",
+      "word": "Black hole",
+      "difficulty": "hard"
+    },
+    {
+      "id": "wild_054",
+      "packId": "wild_card",
+      "word": "Northern lights",
+      "difficulty": "hard"
+    },
+    {
+      "id": "wild_055",
+      "packId": "wild_card",
+      "word": "Musical chairs",
+      "difficulty": "hard"
+    },
+    {
+      "id": "wild_056",
+      "packId": "wild_card",
+      "word": "Talking parrot",
+      "difficulty": "hard"
+    },
+    {
+      "id": "wild_057",
+      "packId": "wild_card",
+      "word": "Self-driving car",
+      "difficulty": "hard"
+    },
+    {
+      "id": "wild_058",
+      "packId": "wild_card",
+      "word": "Smart fridge",
+      "difficulty": "hard"
+    },
+    {
+      "id": "wild_059",
+      "packId": "wild_card",
+      "word": "Drone delivery",
+      "difficulty": "hard"
+    },
+    {
+      "id": "wild_060",
+      "packId": "wild_card",
+      "word": "Moon landing",
+      "difficulty": "hard"
+    }
+  ]
+}

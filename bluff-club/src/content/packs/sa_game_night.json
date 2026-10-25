@@ -1,0 +1,380 @@
+{
+  "id": "sa_game_night",
+  "name": "SA Game Night",
+  "tier": "premium",
+  "contentVersion": 1,
+  "description": "Proudly South African references for a braai, a family visit or game night.",
+  "previews": ["Braai", "Minibus taxi", "Koeksister"],
+  "entries": [
+    {
+      "id": "sa_001",
+      "packId": "sa_game_night",
+      "word": "Braai",
+      "difficulty": "easy"
+    },
+    {
+      "id": "sa_002",
+      "packId": "sa_game_night",
+      "word": "Bunny chow",
+      "difficulty": "easy"
+    },
+    {
+      "id": "sa_003",
+      "packId": "sa_game_night",
+      "word": "Vuvuzela",
+      "difficulty": "easy"
+    },
+    {
+      "id": "sa_004",
+      "packId": "sa_game_night",
+      "word": "Minibus taxi",
+      "difficulty": "easy"
+    },
+    {
+      "id": "sa_005",
+      "packId": "sa_game_night",
+      "word": "Koeksister",
+      "difficulty": "easy"
+    },
+    {
+      "id": "sa_006",
+      "packId": "sa_game_night",
+      "word": "Boerewors",
+      "difficulty": "easy"
+    },
+    {
+      "id": "sa_007",
+      "packId": "sa_game_night",
+      "word": "Biltong",
+      "difficulty": "easy"
+    },
+    {
+      "id": "sa_008",
+      "packId": "sa_game_night",
+      "word": "Rooibos tea",
+      "difficulty": "easy"
+    },
+    {
+      "id": "sa_009",
+      "packId": "sa_game_night",
+      "word": "Table Mountain",
+      "difficulty": "easy"
+    },
+    {
+      "id": "sa_010",
+      "packId": "sa_game_night",
+      "word": "Load shedding",
+      "difficulty": "easy"
+    },
+    {
+      "id": "sa_011",
+      "packId": "sa_game_night",
+      "word": "Bakkie",
+      "difficulty": "easy"
+    },
+    {
+      "id": "sa_012",
+      "packId": "sa_game_night",
+      "word": "Rusks",
+      "difficulty": "easy"
+    },
+    {
+      "id": "sa_013",
+      "packId": "sa_game_night",
+      "word": "Vetkoek",
+      "difficulty": "easy"
+    },
+    {
+      "id": "sa_014",
+      "packId": "sa_game_night",
+      "word": "Pap",
+      "difficulty": "easy"
+    },
+    {
+      "id": "sa_015",
+      "packId": "sa_game_night",
+      "word": "Takkies",
+      "difficulty": "easy",
+      "tags": ["slang"]
+    },
+    {
+      "id": "sa_016",
+      "packId": "sa_game_night",
+      "word": "Robot",
+      "difficulty": "easy",
+      "tags": ["slang"]
+    },
+    {
+      "id": "sa_017",
+      "packId": "sa_game_night",
+      "word": "Protea",
+      "difficulty": "easy"
+    },
+    {
+      "id": "sa_018",
+      "packId": "sa_game_night",
+      "word": "Springbok jersey",
+      "difficulty": "easy"
+    },
+    {
+      "id": "sa_019",
+      "packId": "sa_game_night",
+      "word": "Big Five",
+      "difficulty": "easy"
+    },
+    {
+      "id": "sa_020",
+      "packId": "sa_game_night",
+      "word": "Melktert",
+      "difficulty": "easy"
+    },
+    {
+      "id": "sa_021",
+      "packId": "sa_game_night",
+      "word": "Bobotie",
+      "difficulty": "medium"
+    },
+    {
+      "id": "sa_022",
+      "packId": "sa_game_night",
+      "word": "Chakalaka",
+      "difficulty": "medium"
+    },
+    {
+      "id": "sa_023",
+      "packId": "sa_game_night",
+      "word": "Droëwors",
+      "difficulty": "medium"
+    },
+    {
+      "id": "sa_024",
+      "packId": "sa_game_night",
+      "word": "Malva pudding",
+      "difficulty": "medium"
+    },
+    {
+      "id": "sa_025",
+      "packId": "sa_game_night",
+      "word": "Sosaties",
+      "difficulty": "medium"
+    },
+    {
+      "id": "sa_026",
+      "packId": "sa_game_night",
+      "word": "Potjiekos",
+      "difficulty": "medium"
+    },
+    {
+      "id": "sa_027",
+      "packId": "sa_game_night",
+      "word": "Slap chips",
+      "difficulty": "medium"
+    },
+    {
+      "id": "sa_028",
+      "packId": "sa_game_night",
+      "word": "Gatsby",
+      "difficulty": "medium"
+    },
+    {
+      "id": "sa_029",
+      "packId": "sa_game_night",
+      "word": "Mealie",
+      "difficulty": "medium"
+    },
+    {
+      "id": "sa_030",
+      "packId": "sa_game_night",
+      "word": "Shisa nyama",
+      "difficulty": "medium"
+    },
+    {
+      "id": "sa_031",
+      "packId": "sa_game_night",
+      "word": "Spaza shop",
+      "difficulty": "medium"
+    },
+    {
+      "id": "sa_032",
+      "packId": "sa_game_night",
+      "word": "Stoep",
+      "difficulty": "medium"
+    },
+    {
+      "id": "sa_033",
+      "packId": "sa_game_night",
+      "word": "Pavement special",
+      "difficulty": "medium",
+      "tags": ["slang"]
+    },
+    {
+      "id": "sa_034",
+      "packId": "sa_game_night",
+      "word": "Car guard",
+      "difficulty": "medium"
+    },
+    {
+      "id": "sa_035",
+      "packId": "sa_game_night",
+      "word": "Hadeda",
+      "difficulty": "medium"
+    },
+    {
+      "id": "sa_036",
+      "packId": "sa_game_night",
+      "word": "Jacaranda tree",
+      "difficulty": "medium"
+    },
+    {
+      "id": "sa_037",
+      "packId": "sa_game_night",
+      "word": "Game drive",
+      "difficulty": "medium"
+    },
+    {
+      "id": "sa_038",
+      "packId": "sa_game_night",
+      "word": "Kruger Park",
+      "difficulty": "medium"
+    },
+    {
+      "id": "sa_039",
+      "packId": "sa_game_night",
+      "word": "Robben Island",
+      "difficulty": "medium"
+    },
+    {
+      "id": "sa_040",
+      "packId": "sa_game_night",
+      "word": "Garden Route",
+      "difficulty": "medium"
+    },
+    {
+      "id": "sa_041",
+      "packId": "sa_game_night",
+      "word": "Drakensberg",
+      "difficulty": "medium"
+    },
+    {
+      "id": "sa_042",
+      "packId": "sa_game_night",
+      "word": "Cape Point",
+      "difficulty": "medium"
+    },
+    {
+      "id": "sa_043",
+      "packId": "sa_game_night",
+      "word": "Boulders Beach penguins",
+      "difficulty": "medium"
+    },
+    {
+      "id": "sa_044",
+      "packId": "sa_game_night",
+      "word": "Durban beachfront",
+      "difficulty": "medium"
+    },
+    {
+      "id": "sa_045",
+      "packId": "sa_game_night",
+      "word": "Gumboot dance",
+      "difficulty": "medium"
+    },
+    {
+      "id": "sa_046",
+      "packId": "sa_game_night",
+      "word": "Amapiano",
+      "difficulty": "medium"
+    },
+    {
+      "id": "sa_047",
+      "packId": "sa_game_night",
+      "word": "Matric results",
+      "difficulty": "medium"
+    },
+    {
+      "id": "sa_048",
+      "packId": "sa_game_night",
+      "word": "Comrades Marathon",
+      "difficulty": "medium"
+    },
+    {
+      "id": "sa_049",
+      "packId": "sa_game_night",
+      "word": "Heritage Day",
+      "difficulty": "medium"
+    },
+    {
+      "id": "sa_050",
+      "packId": "sa_game_night",
+      "word": "Baobab",
+      "difficulty": "medium"
+    },
+    {
+      "id": "sa_051",
+      "packId": "sa_game_night",
+      "word": "Lekker",
+      "difficulty": "hard",
+      "tags": ["slang"]
+    },
+    {
+      "id": "sa_052",
+      "packId": "sa_game_night",
+      "word": "Howzit",
+      "difficulty": "hard",
+      "tags": ["slang"]
+    },
+    {
+      "id": "sa_053",
+      "packId": "sa_game_night",
+      "word": "Eish",
+      "difficulty": "hard",
+      "tags": ["slang"]
+    },
+    {
+      "id": "sa_054",
+      "packId": "sa_game_night",
+      "word": "Just now",
+      "difficulty": "hard",
+      "tags": ["slang"]
+    },
+    {
+      "id": "sa_055",
+      "packId": "sa_game_night",
+      "word": "Sharp sharp",
+      "difficulty": "hard",
+      "tags": ["slang"]
+    },
+    {
+      "id": "sa_056",
+      "packId": "sa_game_night",
+      "word": "Ag shame",
+      "difficulty": "hard",
+      "tags": ["slang"]
+    },
+    {
+      "id": "sa_057",
+      "packId": "sa_game_night",
+      "word": "Stokvel",
+      "difficulty": "hard"
+    },
+    {
+      "id": "sa_058",
+      "packId": "sa_game_night",
+      "word": "Dassie",
+      "difficulty": "hard"
+    },
+    {
+      "id": "sa_059",
+      "packId": "sa_game_night",
+      "word": "Highveld thunderstorm",
+      "difficulty": "hard"
+    },
+    {
+      "id": "sa_060",
+      "packId": "sa_game_night",
+      "word": "Bioscope",
+      "difficulty": "hard",
+      "tags": ["slang"]
+    }
+  ]
+}

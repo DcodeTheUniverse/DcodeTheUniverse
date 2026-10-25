@@ -1,0 +1,370 @@
+{
+  "id": "office_chaos",
+  "name": "Office Chaos",
+  "tier": "premium",
+  "contentVersion": 1,
+  "description": "Workplace objects and situations, from printer jams to reply-all disasters.",
+  "previews": ["Stapler", "Reply all", "Secret Santa"],
+  "entries": [
+    {
+      "id": "office_001",
+      "packId": "office_chaos",
+      "word": "Stapler",
+      "difficulty": "easy"
+    },
+    {
+      "id": "office_002",
+      "packId": "office_chaos",
+      "word": "Photocopier",
+      "difficulty": "easy"
+    },
+    {
+      "id": "office_003",
+      "packId": "office_chaos",
+      "word": "Sticky note",
+      "difficulty": "easy"
+    },
+    {
+      "id": "office_004",
+      "packId": "office_chaos",
+      "word": "Whiteboard",
+      "difficulty": "easy"
+    },
+    {
+      "id": "office_005",
+      "packId": "office_chaos",
+      "word": "Coffee machine",
+      "difficulty": "easy"
+    },
+    {
+      "id": "office_006",
+      "packId": "office_chaos",
+      "word": "Water cooler",
+      "difficulty": "easy"
+    },
+    {
+      "id": "office_007",
+      "packId": "office_chaos",
+      "word": "Swivel chair",
+      "difficulty": "easy"
+    },
+    {
+      "id": "office_008",
+      "packId": "office_chaos",
+      "word": "Paper clip",
+      "difficulty": "easy"
+    },
+    {
+      "id": "office_009",
+      "packId": "office_chaos",
+      "word": "Pot plant",
+      "difficulty": "easy"
+    },
+    {
+      "id": "office_010",
+      "packId": "office_chaos",
+      "word": "Name badge",
+      "difficulty": "easy"
+    },
+    {
+      "id": "office_011",
+      "packId": "office_chaos",
+      "word": "Laptop bag",
+      "difficulty": "easy"
+    },
+    {
+      "id": "office_012",
+      "packId": "office_chaos",
+      "word": "Highlighter",
+      "difficulty": "easy"
+    },
+    {
+      "id": "office_013",
+      "packId": "office_chaos",
+      "word": "Hole punch",
+      "difficulty": "easy"
+    },
+    {
+      "id": "office_014",
+      "packId": "office_chaos",
+      "word": "Clipboard",
+      "difficulty": "easy"
+    },
+    {
+      "id": "office_015",
+      "packId": "office_chaos",
+      "word": "Dirty dishes",
+      "difficulty": "easy"
+    },
+    {
+      "id": "office_016",
+      "packId": "office_chaos",
+      "word": "Headset",
+      "difficulty": "easy"
+    },
+    {
+      "id": "office_017",
+      "packId": "office_chaos",
+      "word": "Stationery cupboard",
+      "difficulty": "easy"
+    },
+    {
+      "id": "office_018",
+      "packId": "office_chaos",
+      "word": "Filing cabinet",
+      "difficulty": "easy"
+    },
+    {
+      "id": "office_019",
+      "packId": "office_chaos",
+      "word": "Shredder",
+      "difficulty": "easy"
+    },
+    {
+      "id": "office_020",
+      "packId": "office_chaos",
+      "word": "Projector",
+      "difficulty": "easy"
+    },
+    {
+      "id": "office_021",
+      "packId": "office_chaos",
+      "word": "Printer jam",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_022",
+      "packId": "office_chaos",
+      "word": "Spreadsheet",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_023",
+      "packId": "office_chaos",
+      "word": "Video call",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_024",
+      "packId": "office_chaos",
+      "word": "Mute button",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_025",
+      "packId": "office_chaos",
+      "word": "Reply all",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_026",
+      "packId": "office_chaos",
+      "word": "Out-of-office reply",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_027",
+      "packId": "office_chaos",
+      "word": "Calendar invite",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_028",
+      "packId": "office_chaos",
+      "word": "Stand-up meeting",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_029",
+      "packId": "office_chaos",
+      "word": "Deadline",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_030",
+      "packId": "office_chaos",
+      "word": "Lunch break",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_031",
+      "packId": "office_chaos",
+      "word": "Year-end function",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_032",
+      "packId": "office_chaos",
+      "word": "Secret Santa",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_033",
+      "packId": "office_chaos",
+      "word": "Job interview",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_034",
+      "packId": "office_chaos",
+      "word": "Business card",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_035",
+      "packId": "office_chaos",
+      "word": "Brainstorm",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_036",
+      "packId": "office_chaos",
+      "word": "Boardroom",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_037",
+      "packId": "office_chaos",
+      "word": "Password reset",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_038",
+      "packId": "office_chaos",
+      "word": "IT help desk",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_039",
+      "packId": "office_chaos",
+      "word": "Casual Friday",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_040",
+      "packId": "office_chaos",
+      "word": "Open-plan office",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_041",
+      "packId": "office_chaos",
+      "word": "Hot desk",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_042",
+      "packId": "office_chaos",
+      "word": "Commute",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_043",
+      "packId": "office_chaos",
+      "word": "Parking bay",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_044",
+      "packId": "office_chaos",
+      "word": "Rubber stamp",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_045",
+      "packId": "office_chaos",
+      "word": "Timesheet",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_046",
+      "packId": "office_chaos",
+      "word": "Payslip",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_047",
+      "packId": "office_chaos",
+      "word": "Intern",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_048",
+      "packId": "office_chaos",
+      "word": "Promotion",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_049",
+      "packId": "office_chaos",
+      "word": "Team-building day",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_050",
+      "packId": "office_chaos",
+      "word": "Pie chart",
+      "difficulty": "medium"
+    },
+    {
+      "id": "office_051",
+      "packId": "office_chaos",
+      "word": "Elevator pitch",
+      "difficulty": "hard"
+    },
+    {
+      "id": "office_052",
+      "packId": "office_chaos",
+      "word": "Performance review",
+      "difficulty": "hard"
+    },
+    {
+      "id": "office_053",
+      "packId": "office_chaos",
+      "word": "Inbox zero",
+      "difficulty": "hard"
+    },
+    {
+      "id": "office_054",
+      "packId": "office_chaos",
+      "word": "Microwave queue",
+      "difficulty": "hard"
+    },
+    {
+      "id": "office_055",
+      "packId": "office_chaos",
+      "word": "Passive-aggressive email",
+      "difficulty": "hard"
+    },
+    {
+      "id": "office_056",
+      "packId": "office_chaos",
+      "word": "Company newsletter",
+      "difficulty": "hard"
+    },
+    {
+      "id": "office_057",
+      "packId": "office_chaos",
+      "word": "Slide deck",
+      "difficulty": "hard"
+    },
+    {
+      "id": "office_058",
+      "packId": "office_chaos",
+      "word": "Small talk",
+      "difficulty": "hard"
+    },
+    {
+      "id": "office_059",
+      "packId": "office_chaos",
+      "word": "Annual leave",
+      "difficulty": "hard"
+    },
+    {
+      "id": "office_060",
+      "packId": "office_chaos",
+      "word": "Farewell speech",
+      "difficulty": "hard"
+    }
+  ]
+}
