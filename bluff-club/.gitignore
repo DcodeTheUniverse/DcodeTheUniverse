@@ -1,0 +1,14 @@
+node_modules
+dist
+coverage
+playwright-report
+test-results
+.env
+.env.local
+.env.*.local
+*.keystore
+*.jks
+keystore.properties
+android/app/release
+.DS_Store
+dist-e2e-prod

@@ -1,0 +1,370 @@
+{
+  "id": "food_fight",
+  "name": "Food Fight",
+  "tier": "premium",
+  "contentVersion": 1,
+  "description": "Food, cooking and kitchen chaos — from breakfast to midnight snacks.",
+  "previews": ["Pancakes", "Food truck", "Midnight snack"],
+  "entries": [
+    {
+      "id": "food_001",
+      "packId": "food_fight",
+      "word": "Pizza",
+      "difficulty": "easy"
+    },
+    {
+      "id": "food_002",
+      "packId": "food_fight",
+      "word": "Sushi",
+      "difficulty": "easy"
+    },
+    {
+      "id": "food_003",
+      "packId": "food_fight",
+      "word": "Pancakes",
+      "difficulty": "easy"
+    },
+    {
+      "id": "food_004",
+      "packId": "food_fight",
+      "word": "Popcorn",
+      "difficulty": "easy"
+    },
+    {
+      "id": "food_005",
+      "packId": "food_fight",
+      "word": "Spaghetti",
+      "difficulty": "easy"
+    },
+    {
+      "id": "food_006",
+      "packId": "food_fight",
+      "word": "Burger",
+      "difficulty": "easy"
+    },
+    {
+      "id": "food_007",
+      "packId": "food_fight",
+      "word": "Taco",
+      "difficulty": "easy"
+    },
+    {
+      "id": "food_008",
+      "packId": "food_fight",
+      "word": "Ice cream",
+      "difficulty": "easy"
+    },
+    {
+      "id": "food_009",
+      "packId": "food_fight",
+      "word": "Chocolate",
+      "difficulty": "easy"
+    },
+    {
+      "id": "food_010",
+      "packId": "food_fight",
+      "word": "Doughnut",
+      "difficulty": "easy"
+    },
+    {
+      "id": "food_011",
+      "packId": "food_fight",
+      "word": "Croissant",
+      "difficulty": "easy"
+    },
+    {
+      "id": "food_012",
+      "packId": "food_fight",
+      "word": "Waffle",
+      "difficulty": "easy"
+    },
+    {
+      "id": "food_013",
+      "packId": "food_fight",
+      "word": "Smoothie",
+      "difficulty": "easy"
+    },
+    {
+      "id": "food_014",
+      "packId": "food_fight",
+      "word": "Hot dog",
+      "difficulty": "easy"
+    },
+    {
+      "id": "food_015",
+      "packId": "food_fight",
+      "word": "French fries",
+      "difficulty": "easy"
+    },
+    {
+      "id": "food_016",
+      "packId": "food_fight",
+      "word": "Watermelon",
+      "difficulty": "easy"
+    },
+    {
+      "id": "food_017",
+      "packId": "food_fight",
+      "word": "Pineapple",
+      "difficulty": "easy"
+    },
+    {
+      "id": "food_018",
+      "packId": "food_fight",
+      "word": "Toast",
+      "difficulty": "easy"
+    },
+    {
+      "id": "food_019",
+      "packId": "food_fight",
+      "word": "Cupcake",
+      "difficulty": "easy"
+    },
+    {
+      "id": "food_020",
+      "packId": "food_fight",
+      "word": "Milkshake",
+      "difficulty": "easy"
+    },
+    {
+      "id": "food_021",
+      "packId": "food_fight",
+      "word": "Lasagne",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_022",
+      "packId": "food_fight",
+      "word": "Curry",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_023",
+      "packId": "food_fight",
+      "word": "Dumplings",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_024",
+      "packId": "food_fight",
+      "word": "Omelette",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_025",
+      "packId": "food_fight",
+      "word": "Avocado",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_026",
+      "packId": "food_fight",
+      "word": "Garlic",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_027",
+      "packId": "food_fight",
+      "word": "Chilli pepper",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_028",
+      "packId": "food_fight",
+      "word": "Cinnamon",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_029",
+      "packId": "food_fight",
+      "word": "Honey",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_030",
+      "packId": "food_fight",
+      "word": "Peanut butter",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_031",
+      "packId": "food_fight",
+      "word": "Fondue",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_032",
+      "packId": "food_fight",
+      "word": "Nachos",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_033",
+      "packId": "food_fight",
+      "word": "Pretzel",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_034",
+      "packId": "food_fight",
+      "word": "Candyfloss",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_035",
+      "packId": "food_fight",
+      "word": "Bubble gum",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_036",
+      "packId": "food_fight",
+      "word": "Lollipop",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_037",
+      "packId": "food_fight",
+      "word": "Fruit salad",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_038",
+      "packId": "food_fight",
+      "word": "Food truck",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_039",
+      "packId": "food_fight",
+      "word": "Recipe book",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_040",
+      "packId": "food_fight",
+      "word": "Rolling pin",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_041",
+      "packId": "food_fight",
+      "word": "Frying pan",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_042",
+      "packId": "food_fight",
+      "word": "Oven glove",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_043",
+      "packId": "food_fight",
+      "word": "Whisk",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_044",
+      "packId": "food_fight",
+      "word": "Blender",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_045",
+      "packId": "food_fight",
+      "word": "Lunchbox",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_046",
+      "packId": "food_fight",
+      "word": "Buffet",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_047",
+      "packId": "food_fight",
+      "word": "Chef's hat",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_048",
+      "packId": "food_fight",
+      "word": "Spice rack",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_049",
+      "packId": "food_fight",
+      "word": "Mushroom",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_050",
+      "packId": "food_fight",
+      "word": "Jelly",
+      "difficulty": "medium"
+    },
+    {
+      "id": "food_051",
+      "packId": "food_fight",
+      "word": "Leftovers",
+      "difficulty": "hard"
+    },
+    {
+      "id": "food_052",
+      "packId": "food_fight",
+      "word": "Midnight snack",
+      "difficulty": "hard"
+    },
+    {
+      "id": "food_053",
+      "packId": "food_fight",
+      "word": "Bake sale",
+      "difficulty": "hard"
+    },
+    {
+      "id": "food_054",
+      "packId": "food_fight",
+      "word": "Grocery list",
+      "difficulty": "hard"
+    },
+    {
+      "id": "food_055",
+      "packId": "food_fight",
+      "word": "Cooking show",
+      "difficulty": "hard"
+    },
+    {
+      "id": "food_056",
+      "packId": "food_fight",
+      "word": "Brunch",
+      "difficulty": "hard"
+    },
+    {
+      "id": "food_057",
+      "packId": "food_fight",
+      "word": "Sourdough starter",
+      "difficulty": "hard"
+    },
+    {
+      "id": "food_058",
+      "packId": "food_fight",
+      "word": "Taste test",
+      "difficulty": "hard"
+    },
+    {
+      "id": "food_059",
+      "packId": "food_fight",
+      "word": "Kitchen timer",
+      "difficulty": "hard"
+    },
+    {
+      "id": "food_060",
+      "packId": "food_fight",
+      "word": "Second helping",
+      "difficulty": "hard"
+    }
+  ]
+}
