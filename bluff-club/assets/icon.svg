@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <title>Bluff Club icon</title>
+  <rect width="512" height="512" fill="#101216"/>
+  <g transform="translate(96 104) scale(5)">
+    <path d="M12 10h40a8 8 0 0 1 8 8v22a8 8 0 0 1-8 8H31l-13 10v-10h-6a8 8 0 0 1-8-8V18a8 8 0 0 1 8-8z" fill="#0a0b0e" transform="translate(0 2.2)"/>
+    <path d="M12 10h40a8 8 0 0 1 8 8v22a8 8 0 0 1-8 8H31l-13 10v-10h-6a8 8 0 0 1-8-8V18a8 8 0 0 1 8-8z" fill="#C7FF5E"/>
+    <path d="M12 26c6-6 13-6 17 0 4-6 11-6 17 0 0 6-7 10-17 5-10 5-17 1-17-5z" fill="#101216"/>
+    <circle cx="20.5" cy="27.5" r="3" fill="#C7FF5E"/>
+    <circle cx="37.5" cy="27.5" r="3" fill="#C7FF5E"/>
+  </g>
+</svg>
