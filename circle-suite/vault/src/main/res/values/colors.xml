@@ -1,0 +1,6 @@
+<resources>
+    <color name="paper">#FFFFFFFF</color>
+    <color name="ink">#FF000000</color>
+    <color name="launcher_background">#FF4F46E5</color>
+    <color name="ic_splash_tint">#FF4F46E5</color>
+</resources>
