@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Dcode</string>
+    <string name="lock_service_name">Dcode · double-tap to lock</string>
+    <string name="lock_service_desc">Lets Dcode lock your screen when you double-tap the home screen. It does not read screen content.</string>
+</resources>
