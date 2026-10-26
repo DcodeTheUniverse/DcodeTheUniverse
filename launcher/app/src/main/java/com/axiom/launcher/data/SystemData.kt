@@ -45,7 +45,15 @@ object CalendarRepo {
     }
 }
 
-data class NotifItem(val app: String, val title: String, val text: String, val time: Long, val key: String)
+data class NotifItem(
+    val app: String,
+    val title: String,
+    val text: String,
+    val time: Long,
+    val key: String,
+    /** Posted in another profile (e.g. the work profile); kept out of personal-space tasks. */
+    val otherProfile: Boolean = false,
+)
 
 /** Opt-in: keeps the latest notifications in memory so Claude can summarize them. Nothing is stored on disk. */
 class NotificationWatcher : NotificationListenerService() {
@@ -75,7 +83,7 @@ class NotificationWatcher : NotificationListenerService() {
         }.getOrDefault(sbn.packageName)
         synchronized(items) {
             items.removeAll { it.key == sbn.key }
-            items.add(0, NotifItem(label, title, text.take(400), sbn.postTime, sbn.key))
+            items.add(0, NotifItem(label, title, text.take(400), sbn.postTime, sbn.key, otherProfile = sbn.user != android.os.Process.myUserHandle()))
             while (items.size > 60) items.removeAt(items.size - 1)
         }
         version++

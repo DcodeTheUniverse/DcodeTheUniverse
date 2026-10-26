@@ -31,7 +31,7 @@ import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.InsertDriveFile
+import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.VideoFile
 import androidx.compose.material.icons.outlined.Android
@@ -126,8 +126,8 @@ fun FilesPage(vm: LauncherViewModel) {
             ) {
                 Text("Unlock full file search", style = lStyle(16.sp, FontWeight.Medium))
                 Text(
-                    "Allow \"All files access\" so Axiom (and Claude) can browse folders and search every file by name. " +
-                        "Nothing leaves your phone unless you send it to Claude.",
+                    "Allow \"All files access\" so Axiom (and Solis) can browse folders and search every file by name. " +
+                        "Nothing leaves your phone unless you send it to Solis.",
                     style = lStyle(13.sp, color = p.dim), modifier = Modifier.padding(vertical = 6.dp),
                 )
                 Chip("Allow access", selected = true) { vm.actions.allFilesAccessSettings() }
@@ -206,6 +206,6 @@ fun fileIcon(f: FileHit): ImageVector {
         "zip", "rar", "7z", "tar", "gz" -> Icons.Outlined.FolderZip
         "apk" -> Icons.Outlined.Android
         "txt", "md", "doc", "docx", "odt", "rtf", "csv", "json", "xml", "html" -> Icons.Outlined.Description
-        else -> Icons.Outlined.InsertDriveFile
+        else -> Icons.AutoMirrored.Outlined.InsertDriveFile
     }
 }

@@ -59,6 +59,9 @@ import kotlinx.coroutines.withContext
 
 val Netrunner: Boolean @Composable get() = LocalMode.current == ThemeMode.NETRUNNER
 
+/** Money as people read it: cents for normal amounts, more precision for fractions of a cent. */
+fun usd(v: Double): String = if (v != 0.0 && kotlin.math.abs(v) < 0.01) "$" + "%.4f".format(v) else "$" + "%.2f".format(v)
+
 /** Stops taps on an overlay's empty space from reaching the screen underneath. */
 fun Modifier.blockTouches(): Modifier = this.pointerInput(Unit) { detectTapGestures { } }
 
@@ -115,13 +118,21 @@ fun AppRow(
         }
         Text(
             displayLabel(app.label),
-            style = lStyle(size, LocalType.current.appWeight, if (dim) p.dim else p.fg),
+            style = lStyle(size, LocalType.current.appWeight, if (dim || !app.runnable) p.dim else p.fg),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        if (app.isWork) {
+        val badge = when {
+            app.paused -> "paused"
+            app.suspended -> "suspended"
+            app.profile == com.axiom.launcher.platform.ProfileKind.WORK -> "work"
+            app.profile == com.axiom.launcher.platform.ProfileKind.PRIVATE -> "private"
+            app.profile == com.axiom.launcher.platform.ProfileKind.CLONE -> "clone"
+            else -> null
+        }
+        if (badge != null) {
             Spacer(Modifier.width(8.dp))
-            Text("work", style = lStyle(11.sp, color = p.dim))
+            Text(badge, style = lStyle(11.sp, color = p.dim))
         }
         if (vm.focusActive && vm.isDistracting(app)) {
             Spacer(Modifier.width(8.dp))

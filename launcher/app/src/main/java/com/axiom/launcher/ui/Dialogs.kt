@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -40,6 +41,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
@@ -83,10 +85,11 @@ fun AppMenu(vm: LauncherViewModel, app: AppInfo, onDismiss: () -> Unit) {
     val p = LocalPalette.current
     var renaming by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf(app.label) }
-    val fav = app.key in vm.favorites
+    val fav = app.key in vm.favoriteKeys
     LDialog(onDismiss) {
         Text(displayLabel(app.label), style = lStyle(22.sp, FontWeight.Medium))
-        Text(app.packageName, style = lStyle(12.sp, color = p.dim))
+        Text(app.packageName + " · " + app.profile.label.lowercase() + (if (app.paused) " · paused" else if (app.suspended) " · suspended" else ""),
+            style = lStyle(12.sp, color = p.dim))
         Spacer(Modifier.height(12.dp))
         if (renaming) {
             InputBar(name, { name = it }, "Name", onSubmit = { vm.rename(app, name); onDismiss() })
@@ -110,7 +113,7 @@ fun AppMenu(vm: LauncherViewModel, app: AppInfo, onDismiss: () -> Unit) {
         ActionRow(Icons.Outlined.DoNotDisturbOn, if (vm.isDistracting(app)) "Allow during focus" else "Block during focus") {
             vm.toggleDistracting(app); onDismiss()
         }
-        ActionRow(Icons.Outlined.AutoAwesome, "Ask Claude about this app") {
+        ActionRow(Icons.Outlined.AutoAwesome, "Ask Solis about this app") {
             onDismiss(); vm.ask("Give me 3 quick power-user tips for the ${app.label} app on Android.")
         }
         ActionRow(Icons.Outlined.Info, "App info") { vm.appInfo(app); onDismiss() }
@@ -142,8 +145,8 @@ fun FileMenu(vm: LauncherViewModel, f: FileHit, onDone: () -> Unit) {
         }
         if (!f.isDir) {
             ActionRow(Icons.AutoMirrored.Outlined.OpenInNew, "Open") { vm.actions.openFile(f.path); onDone() }
-            ActionRow(Icons.Outlined.AutoAwesome, "Ask Claude about this file",
-                if (vm.effectiveEngine == "api") "images, PDFs and text files" else "shares it to the Claude app") {
+            ActionRow(Icons.Outlined.AutoAwesome, "Ask Solis about this file",
+                if (vm.effectiveEngine == "brain") "images, PDFs and text files" else "shares it to the Claude app") {
                 vm.attachFile(f.path); onDone()
             }
             ActionRow(Icons.Outlined.Share, "Share") { vm.actions.shareFile(f.path); onDone() }
@@ -168,7 +171,7 @@ fun NoteDialog(vm: LauncherViewModel, note: Note, onDismiss: () -> Unit) {
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Chip("Done", selected = true) { vm.deleteNote(note.id); onDismiss() }
             Chip(if (note.pinned) "Unpin" else "Pin") { vm.togglePin(note); onDismiss() }
-            Chip("Ask Claude") { onDismiss(); vm.ask("Help me with this note: ${note.text}") }
+            Chip("Ask Solis") { onDismiss(); vm.ask("Help me with this note: ${note.text}") }
         }
     }
 }
@@ -176,13 +179,16 @@ fun NoteDialog(vm: LauncherViewModel, note: Note, onDismiss: () -> Unit) {
 @Composable
 fun FocusBlockedDialog(vm: LauncherViewModel, app: AppInfo) {
     val p = LocalPalette.current
-    val left = ((vm.focusUntil - System.currentTimeMillis()) / 60_000 + 1).coerceAtLeast(1)
+    val left = if (vm.tempUntil > 0) ((vm.tempUntil - System.currentTimeMillis()) / 60_000 + 1).coerceAtLeast(1) else null
     LDialog({ vm.focusBlocked = null }) {
         Text(if (Netrunner) "ACCESS DENIED" else "Stay focused", style = lStyle(22.sp, FontWeight.Medium, if (Netrunner) p.danger else p.fg))
         Spacer(Modifier.height(6.dp))
         Text(
-            if (Netrunner) "> ${displayLabel(app.label)} is firewalled for another $left min."
-            else "${app.label} is paused for another $left minutes.",
+            when {
+                Netrunner -> "> ${displayLabel(app.label)} is firewalled" + (left?.let { " for another $it min." } ?: " in ${vm.mode.name.lowercase()} mode.")
+                left != null -> "${app.label} is paused for another $left minutes."
+                else -> "${app.label} is paused in ${vm.mode.name} mode."
+            },
             style = lStyle(15.sp, color = p.dim),
         )
         Spacer(Modifier.height(16.dp))
@@ -216,6 +222,65 @@ fun TerminalDialog(text: String, onDismiss: () -> Unit) {
     }
 }
 
+/** A work-profile app while work apps are paused: Android decides, Axiom only asks it. */
+@Composable
+fun PausedAppDialog(vm: LauncherViewModel, app: AppInfo) {
+    val p = LocalPalette.current
+    LDialog({ vm.pausedApp = null }) {
+        Text("Work apps are paused", style = lStyle(20.sp, FontWeight.Medium))
+        Text(
+            "${app.label} is in your work profile, which is turned off. Turning it on may ask for your work PIN, and your organization's policies still apply.",
+            style = lStyle(14.sp, color = p.dim), modifier = Modifier.padding(vertical = 8.dp),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Chip("Turn on work apps", selected = true) { vm.pausedApp = null; vm.setWorkPaused(false) }
+            Chip("Not now") { vm.pausedApp = null }
+        }
+    }
+}
+
+/** Switch launcher modes, or start one for a while. Modes are presets, not Android security profiles. */
+@Composable
+fun ModeSheet(vm: LauncherViewModel, onDismiss: () -> Unit) {
+    val p = LocalPalette.current
+    LDialog(onDismiss) {
+        Text(if (Netrunner) "// mode" else "Mode", style = lStyle(22.sp, FontWeight.Medium))
+        Text("Layouts, notifications, AI budget and privacy. Modes don't change Android permissions.", style = lStyle(12.sp, color = p.dim))
+        Spacer(Modifier.height(10.dp))
+        Column(Modifier.verticalScroll(rememberScrollState())) {
+            vm.modes.forEach { m ->
+                val active = m.id == vm.mode.id
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { vm.switchMode(m.id); onDismiss() }.padding(vertical = 10.dp, horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(m.glyph, style = lStyle(20.sp, color = if (active) p.accent else p.fg), modifier = Modifier.width(34.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(m.name + if (active) "  ✓" else "", style = lStyle(16.sp, FontWeight.Medium))
+                        Text(modeSummary(m), style = lStyle(12.sp, color = p.dim), maxLines = 2)
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (vm.tempUntil > 0) Chip("End ${vm.mode.name.lowercase()} now", selected = true) { vm.core.modes.endTemporary(revert = true); onDismiss() }
+                listOf(25, 50, 90).forEach { min -> Chip("Focus $min min") { vm.startFocus(min); onDismiss() } }
+                Chip("Edit modes…") { vm.settingsSection = "modes"; vm.overlayRequest = com.axiom.launcher.Overlay.SETTINGS; onDismiss() }
+            }
+        }
+    }
+}
+
+fun modeSummary(m: com.axiom.launcher.modes.LauncherMode): String = buildList {
+    add(m.space.name.lowercase() + " space")
+    add("AI: " + m.aiPrivacy.label.lowercase() + (m.aiDailyBudgetUsd?.let { " · $" + "%.2f".format(it) + "/day" } ?: ""))
+    add("notifications: " + m.notifications.label.lowercase())
+    if (m.blockDistracting) add("blocks distracting apps")
+    if (m.workApps != com.axiom.launcher.modes.WorkApps.ALL) add("work apps: " + m.workApps.label.lowercase())
+    if (m.dataSaver) add("data saver")
+    if (m.homeTimezone != null) add("home clock")
+}.joinToString(" · ")
+
 @Composable
 fun LockSetupDialog(vm: LauncherViewModel) {
     val p = LocalPalette.current
@@ -248,16 +313,28 @@ fun Onboarding(vm: LauncherViewModel) {
             Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(28.dp),
         ) {
             Spacer(Modifier.height(30.dp))
-            Text(if (Netrunner) "AXIOM//OS" else "Axiom", style = lStyle(48.sp, FontWeight.Thin))
+            com.axiom.launcher.ui.solis.AxiomWordmark(markSize = 44.dp, textSize = 34.sp)
+            Spacer(Modifier.height(10.dp))
             Text(
-                if (Netrunner) "> an ai-first shell for your deck." else "An AI-first home screen. Minimal by default, Claude when you need it.",
+                if (Netrunner) "> an ai-first shell for your deck. solis rides along." else "An AI-first home screen. Minimal by default; Solis, your assistant, when you need it.",
                 style = lStyle(16.sp, color = p.dim),
             )
             Spacer(Modifier.height(28.dp))
             SectionLabel("Pick a look")
             ThemePicker(vm)
-            SectionLabel("What should Claude call you?")
+            SectionLabel("What should Solis call you?")
             InputBar(name, { name = it }, "Your name", onSubmit = { vm.updateName(name) })
+            SectionLabel("Meet Solis")
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
+                com.axiom.launcher.ui.solis.SolisFace(vm.face, size = 56.dp)
+                Spacer(Modifier.width(14.dp))
+                Text(
+                    "Solis plans tasks, picks the right model for each, works with your apps and files, and keeps going in the background. Basic launcher features never need it.",
+                    style = lStyle(14.sp, color = p.dim),
+                )
+            }
+            if (!vm.providersConfigured) ProviderSetupCard(vm)
+            else Text("Solis is connected ✓", style = lStyle(14.sp, color = p.accent))
             SectionLabel("Make it home")
             Text(
                 "Set Axiom as your default home app so the Home button brings you here.",
@@ -267,8 +344,9 @@ fun Onboarding(vm: LauncherViewModel) {
             SectionLabel("How it works")
             listOf(
                 "Swipe up" to "all apps, searchable, by category",
-                "Tap the bar" to "search apps, files, contacts, settings · or ask Claude",
-                "Swipe left / right" to "files · Claude",
+                "Tap the bar" to "search apps, files, contacts, memory · ask Solis · > for commands",
+                "Swipe left / right" to "files · Solis",
+                "Mode chip" to "Personal, Work, Focus, Travel",
                 "Swipe down" to "notifications",
                 "Long-press home" to "settings & themes",
                 "Double-tap" to "lock screen (optional)",

@@ -57,6 +57,8 @@ class FakeProvider(
     override val isLocal: Boolean = false,
     var configured: Boolean = true,
     var script: (ChatRequest, Int) -> Script = { _, _ -> Script.text("ok") },
+    /** What [listModels] reports, so a catalog refresh can be exercised. */
+    var models: List<ModelInfo> = emptyList(),
 ) : LlmProvider {
     override val displayName = "Fake $id"
     val requests: MutableList<ChatRequest> = Collections.synchronizedList(ArrayList())
@@ -65,7 +67,7 @@ class FakeProvider(
     @Volatile var maxInFlight = 0
 
     override fun isConfigured() = configured
-    override suspend fun listModels(): List<ModelInfo> = emptyList()
+    override suspend fun listModels(): List<ModelInfo> = models
 
     override fun stream(request: ChatRequest): Flow<LlmEvent> = flow {
         requests += request.copy(messages = request.messages.toList())

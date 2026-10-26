@@ -1,6 +1,8 @@
 package com.axiom.launcher.ui
 
 import android.Manifest
+import android.os.Build
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -10,6 +12,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,26 +21,26 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.OpenInNew
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.outlined.AccessibilityNew
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Contacts
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Key
+import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.NotificationsActive
+import androidx.compose.material.icons.outlined.Work
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -47,220 +50,212 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.axiom.launcher.LauncherViewModel
 import com.axiom.launcher.LockService
 import com.axiom.launcher.data.CalendarRepo
 import com.axiom.launcher.data.NotificationWatcher
-import com.axiom.launcher.ai.ClaudeAgent
+import com.axiom.launcher.ui.solis.AxiomMark
 import com.axiom.launcher.ui.theme.LocalPalette
 import com.axiom.launcher.ui.theme.ThemeMode
 import com.axiom.launcher.ui.theme.lStyle
 import com.axiom.launcher.ui.theme.paletteFor
 
+private val SECTION_TITLES = mapOf(
+    "providers" to "Providers & models",
+    "cortex" to "Cortex & routing",
+    "budget" to "Budget & usage",
+    "privacy" to "Privacy & tasks",
+    "modes" to "Modes & routines",
+    "diagnostics" to "Diagnostics",
+)
+
 @Composable
 fun SettingsScreen(vm: LauncherViewModel, onClose: () -> Unit) {
     val p = LocalPalette.current
-    val ctx = LocalContext.current
-    var tick by remember { mutableIntStateOf(0) }
-    LifecycleResumeEffect(Unit) { tick++; onPauseOrDispose { } }
-    val contactsPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { tick++ }
-    val calendarPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { tick++; vm.refreshGlance() }
-    var showHidden by remember { mutableStateOf(false) }
-    var showFocusApps by remember { mutableStateOf(false) }
+    var section by remember { mutableStateOf(vm.settingsSection) }
+    LaunchedEffect(vm.settingsSection) { vm.settingsSection?.let { section = it } }
+    BackHandler(enabled = section != null) { section = null; vm.settingsSection = null }
 
-    Column(
-        Modifier.fillMaxSize().background(p.bg).blockTouches().statusBarsPadding().navigationBarsPadding().imePadding(),
-    ) {
-        Row(Modifier.padding(start = 24.dp, end = 12.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(if (Netrunner) "/etc/axiom.conf" else "Settings", style = lStyle(30.sp, FontWeight.Light), modifier = Modifier.weight(1f))
+    Column(Modifier.fillMaxSize().background(p.bg).blockTouches().statusBarsPadding().navigationBarsPadding().imePadding()) {
+        Row(Modifier.padding(start = 12.dp, end = 12.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (section != null) IconBtn(Icons.AutoMirrored.Outlined.ArrowBack, "Back") { section = null; vm.settingsSection = null }
+            else Spacer(Modifier.padding(start = 12.dp))
+            Text(
+                section?.let { SECTION_TITLES[it] } ?: if (Netrunner) "/etc/axiom.conf" else "Settings",
+                style = lStyle(if (section == null) 30.sp else 24.sp, FontWeight.Light),
+                modifier = Modifier.weight(1f).semantics { heading() },
+            )
             IconBtn(Icons.Outlined.Close, "Close", onClick = onClose)
         }
         Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 24.dp)) {
-            SectionLabel("Theme")
-            ThemePicker(vm)
-
-            SectionLabel("You")
-            InputBar(vm.userName, { vm.updateName(it) }, "Your name", onSubmit = {})
-
-            SectionLabel("Claude")
-            ClaudeSettings(vm)
-
-            SectionLabel("Home screen")
-            SettingSwitch("App icons", "Off keeps the home screen text-only", vm.showIcons) { vm.updateShowIcons(it) }
-            if (vm.showIcons) SettingSwitch("Monochrome icons", "Tint icons to match the theme", vm.monoIcons) { vm.updateMonoIcons(it) }
-            SettingSwitch("24-hour clock", null, vm.clock24) { vm.updateClock24(it) }
-            SettingSwitch("Keyboard opens with app drawer", null, vm.autoKeyboard) { vm.updateAutoKeyboard(it) }
-            SettingSwitch("Visual effects", "Netrunner rain, scanlines, glitches and boot sequence", vm.effects) { vm.updateEffects(it) }
-
-            SectionLabel("Focus mode")
-            Text(
-                if (vm.focusActive) "Active · ends ${java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(vm.focusUntil))}"
-                else "Pauses distracting apps. Start it from the search bar (\"focus 45\") or below.",
-                style = lStyle(13.sp, color = p.dim),
-            )
-            Spacer(Modifier.height(8.dp))
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(25, 50, 90).forEach { m -> Chip("$m min") { vm.startFocus(m) } }
-                if (vm.focusActive) Chip("Stop", selected = true) { vm.startFocus(0) }
-                Chip(if (showFocusApps) "Hide app list" else "Choose apps…") { showFocusApps = !showFocusApps }
+            when (section) {
+                "providers" -> ProvidersSettings(vm)
+                "cortex" -> CortexSettings(vm)
+                "budget" -> BudgetSettings(vm)
+                "privacy" -> PrivacySettings(vm)
+                "modes" -> ModesSettings(vm)
+                "diagnostics" -> DiagnosticsSettings(vm)
+                else -> MainSettings(vm, onClose) { section = it }
             }
-            if (showFocusApps) {
-                Spacer(Modifier.height(6.dp))
-                vm.visibleApps().forEach { app ->
-                    SettingSwitch(app.label, app.category.title, vm.isDistracting(app)) { vm.toggleDistracting(app) }
-                }
-            }
-
-            SectionLabel("Hidden apps")
-            if (vm.hidden.isEmpty()) Text("None. Long-press an app › Hide.", style = lStyle(13.sp, color = p.dim))
-            else {
-                Chip(if (showHidden) "Collapse" else "Show ${vm.hidden.size} hidden") { showHidden = !showHidden }
-                if (showHidden) vm.apps.filter { it.key in vm.hidden }.forEach { app ->
-                    ActionRow(null, app.label, "Tap to unhide") { vm.toggleHidden(app) }
-                }
-            }
-
-            SectionLabel("Permissions & system")
-            key(tick) {
-            ActionRow(Icons.Outlined.Home, if (isDefaultLauncher(ctx)) "Default home app ✓" else "Set as default home app",
-                "So the Home button opens Axiom") { vm.actions.chooseDefaultLauncher() }
-            ActionRow(Icons.Outlined.Folder, if (vm.files.hasAllFilesAccess()) "All files access ✓" else "Allow all files access",
-                "Folder browsing and file search for you and Claude") { vm.actions.allFilesAccessSettings() }
-            ActionRow(Icons.Outlined.Contacts, if (vm.files.hasContacts()) "Contacts ✓" else "Allow contacts",
-                "\"call mom\", contact search, texting by name") { contactsPerm.launch(Manifest.permission.READ_CONTACTS) }
-            ActionRow(Icons.Outlined.CalendarMonth, if (CalendarRepo.hasPermission(ctx)) "Calendar ✓" else "Allow calendar",
-                "Next event on home, agenda for Claude") { calendarPerm.launch(Manifest.permission.READ_CALENDAR) }
-            ActionRow(Icons.Outlined.Notifications, if (NotificationWatcher.enabled(ctx)) "Notification digest ✓" else "Enable notification digest",
-                "Lets Claude summarize your notifications. Kept in memory only") { vm.actions.notificationAccessSettings() }
-            ActionRow(Icons.Outlined.AccessibilityNew, if (LockService.enabled()) "Double-tap to lock ✓" else "Enable double-tap to lock",
-                "Accessibility service, used only to lock the screen") { vm.actions.accessibilitySettings() }
-            }
-
-            SectionLabel("Gestures")
-            listOf(
-                "Swipe up" to "App drawer", "Swipe down" to "Notifications", "Tap search bar" to "Omnibox + Claude",
-                "Swipe right" to "Files", "Swipe left" to "Claude chat", "Long-press" to "These settings",
-                "Double-tap" to "Lock", "Hold Home / assist" to "Claude (set Axiom as assist app)",
-            ).forEach { (k, v) ->
-                Row(Modifier.padding(vertical = 3.dp)) {
-                    Text(k, style = lStyle(14.sp, FontWeight.Medium), modifier = Modifier.weight(0.45f))
-                    Text(v, style = lStyle(14.sp, color = p.dim), modifier = Modifier.weight(0.55f))
-                }
-            }
-
-            SectionLabel("About")
-            Text(
-                "Axiom ${runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: ""} · AI-first launcher.\n" +
-                    "Your API key is encrypted with the Android Keystore and only sent to api.anthropic.com.",
-                style = lStyle(13.sp, color = p.dim),
-            )
-            Spacer(Modifier.height(10.dp))
-            Chip("Replay intro") { onClose(); vm.resetOnboarding() }
             Spacer(Modifier.height(48.dp))
         }
     }
 }
 
 @Composable
-private fun ClaudeSettings(vm: LauncherViewModel) {
+private fun ColumnScope.MainSettings(vm: LauncherViewModel, onClose: () -> Unit, open: (String) -> Unit) {
     val p = LocalPalette.current
-    var keyDraft by remember { mutableStateOf("") }
+    val ctx = LocalContext.current
+    var tick by remember { mutableIntStateOf(0) }
+    LifecycleResumeEffect(Unit) { tick++; onPauseOrDispose { } }
+    val contactsPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { tick++ }
+    val calendarPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { tick++; vm.refreshGlance() }
+    val notifPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { tick++ }
+    var showHidden by remember { mutableStateOf(false) }
+    var showFocusApps by remember { mutableStateOf(false) }
+
+    SectionLabel("Theme")
+    ThemePicker(vm)
+    if (vm.mode.theme != null) Text("${vm.mode.name} mode uses ${vm.mode.theme!!.title}.", style = lStyle(12.sp, color = p.dim), modifier = Modifier.padding(top = 6.dp))
+
+    SectionLabel("You")
+    InputBar(vm.userName, { vm.updateName(it) }, "Your name", onSubmit = {})
+
+    SectionLabel("Solis")
     Text(
-        "Claude subscriptions (Pro/Max) can't be used by other apps directly, so Axiom gives you two engines:",
+        when (vm.effectiveEngine) {
+            "app" -> "Questions open the Claude app on your subscription."
+            else -> if (vm.providersConfigured) "Solis runs tasks with your providers and routes each to a suitable model." else "Connect a provider so Solis can run tasks."
+        },
         style = lStyle(13.sp, color = p.dim),
     )
     Spacer(Modifier.height(8.dp))
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Chip("Auto", vm.engine == "auto") { vm.updateEngine("auto") }
-        Chip("Claude app", vm.engine == "app") { vm.updateEngine("app") }
-        Chip("Built-in agent", vm.engine == "api") { vm.updateEngine("api") }
+        Chip("Auto", vm.engineMode == "auto") { vm.updateEngine("auto") }
+        Chip("Solis brain", vm.engineMode == "brain") { vm.updateEngine("brain") }
+        Chip("Claude app", vm.engineMode == "app") { vm.updateEngine("app") }
     }
-    Spacer(Modifier.height(6.dp))
-    Text(
-        when (vm.engine) {
-            "app" -> "Questions open the official Claude app, on your subscription."
-            "api" -> "Claude runs inside Axiom with your API key and can control the phone."
-            else -> "Uses the built-in agent when an API key is set, otherwise the Claude app."
-        },
-        style = lStyle(12.sp, color = p.dim),
-    )
-    Spacer(Modifier.height(4.dp))
-    ActionRow(Icons.AutoMirrored.Outlined.OpenInNew, if (vm.actions.isClaudeAppInstalled()) "Open the Claude app" else "Install the Claude app") {
-        vm.actions.askClaudeApp(null)
+    NavRow("Providers & models", if (vm.providersConfigured) "OpenRouter, Anthropic, local runtime · models per role" else "Not connected yet") { open("providers") }
+    NavRow("Cortex & routing", "Decision matrix, tiers, learning, policy history, routing log") { open("cortex") }
+    NavRow("Budget & usage", "Spending caps and what Solis spent") { open("budget") }
+    NavRow("Privacy & tasks", "Offline mode, web, memory sharing, concurrency, auto-resume") { open("privacy") }
+    NavRow("Memory inspector", "See, correct, forget, export what Solis remembers") { onClose(); vm.overlayRequest = com.axiom.launcher.Overlay.MEMORY }
+    NavRow("Task overview", "All Solis threads, models and usage") { onClose(); vm.overlayRequest = com.axiom.launcher.Overlay.TASKS }
+    SettingSwitch("Speak replies", "Read answers aloud when you asked by voice or here", vm.speakReplies) { vm.updateSpeak(it) }
+
+    SectionLabel("Modes & routines")
+    NavRow("${vm.mode.glyph} ${vm.mode.name} mode is active", "Edit Personal, Work, Focus, Travel and your routines") { open("modes") }
+
+    SectionLabel("Home screen")
+    SettingSwitch("App icons", "Off keeps the home screen text-only", vm.showIcons) { vm.updateShowIcons(it) }
+    if (vm.showIcons) SettingSwitch("Monochrome icons", "Tint icons to match the theme", vm.monoIcons) { vm.updateMonoIcons(it) }
+    SettingSwitch("24-hour clock", null, vm.clock24) { vm.updateClock24(it) }
+    SettingSwitch("Keyboard opens with app drawer", null, vm.autoKeyboard) { vm.updateAutoKeyboard(it) }
+    SettingSwitch("Visual effects", "Netrunner rain, scanlines, glitches and boot sequence", vm.effects) { vm.updateEffects(it) }
+    Text("Motion", style = lStyle(16.sp), modifier = Modifier.padding(top = 8.dp))
+    Text("Reduced motion stops decorative animation; Solis's face shows still expressions.", style = lStyle(12.sp, color = p.dim))
+    Row(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Chip("Follow system", vm.reducedMotionPref == "system") { vm.updateReducedMotion("system") }
+        Chip("Reduce", vm.reducedMotionPref == "on") { vm.updateReducedMotion("on") }
+        Chip("Full", vm.reducedMotionPref == "off") { vm.updateReducedMotion("off") }
     }
 
+    SectionLabel("Focus apps")
+    Text("Apps blocked while a mode blocks distractions (Focus by default).", style = lStyle(13.sp, color = p.dim))
     Spacer(Modifier.height(6.dp))
-    Text("Anthropic API key", style = lStyle(15.sp, FontWeight.Medium))
+    Chip(if (showFocusApps) "Hide app list" else "Choose apps…") { showFocusApps = !showFocusApps }
+    if (showFocusApps) vm.visibleApps().forEach { app ->
+        SettingSwitch(app.label, app.category.title, vm.isDistracting(app)) { vm.toggleDistracting(app) }
+    }
+
+    SectionLabel("Hidden apps")
+    if (vm.hidden.isEmpty()) Text("None. Long-press an app › Hide.", style = lStyle(13.sp, color = p.dim))
+    else {
+        Chip(if (showHidden) "Collapse" else "Show ${vm.hidden.size} hidden") { showHidden = !showHidden }
+        if (showHidden) vm.apps.filter { it.key in vm.hidden }.forEach { app -> ActionRow(null, app.label, "Tap to unhide") { vm.toggleHidden(app) } }
+    }
+
+    SectionLabel("Profiles")
+    val wp = vm.workProfile
+    if (wp == null) Text("No work profile on this phone. Work mode still keeps work tasks and memory separate inside Axiom.", style = lStyle(13.sp, color = p.dim))
+    else ActionRow(Icons.Outlined.Work, if (wp.paused) "Work apps are paused" else "Work apps are on",
+        "Tap to ${if (wp.paused) "turn them on" else "pause them"}. Your organization's policies apply; Axiom never reads work-app data.") { vm.setWorkPaused(!wp.paused) }
+    if (vm.profiles.any { it.kind == com.axiom.launcher.platform.ProfileKind.PRIVATE })
+        Text("Private space apps appear in the drawer only while it is unlocked and never reach Solis.", style = lStyle(12.sp, color = p.dim), modifier = Modifier.padding(top = 4.dp))
+
+    SectionLabel("Permissions & system")
+    key(tick) {
+        ActionRow(Icons.Outlined.Home, if (isDefaultLauncher(ctx)) "Default home app ✓" else "Set as default home app",
+            "So the Home button opens Axiom") { vm.actions.chooseDefaultLauncher() }
+        ActionRow(Icons.Outlined.Folder, if (vm.files.hasAllFilesAccess()) "All files access ✓" else "Allow all files access",
+            "Folder browsing and file search for you and Solis") { vm.actions.allFilesAccessSettings() }
+        ActionRow(Icons.Outlined.Contacts, if (vm.files.hasContacts()) "Contacts ✓" else "Allow contacts",
+            "\"call mom\", contact search, texting by name") { contactsPerm.launch(Manifest.permission.READ_CONTACTS) }
+        ActionRow(Icons.Outlined.CalendarMonth, if (CalendarRepo.hasPermission(ctx)) "Calendar ✓" else "Allow calendar",
+            "Next event on home, agenda for Solis") { calendarPerm.launch(Manifest.permission.READ_CALENDAR) }
+        ActionRow(Icons.Outlined.Notifications, if (NotificationWatcher.enabled(ctx)) "Notification digest ✓" else "Enable notification digest",
+            "Lets Solis summarize notifications. Kept in memory only; work-profile ones stay with work tasks") { vm.actions.notificationAccessSettings() }
+        if (Build.VERSION.SDK_INT >= 33) {
+            val granted = ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            ActionRow(Icons.Outlined.NotificationsActive, if (granted) "Task notifications ✓" else "Allow task notifications",
+                "Progress of Solis tasks running in the background, with a pause button") { notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS) }
+        }
+        ActionRow(Icons.Outlined.AccessibilityNew, if (LockService.enabled()) "Double-tap to lock ✓" else "Enable double-tap to lock",
+            "Accessibility service, used only to lock the screen") { vm.actions.accessibilitySettings() }
+    }
+
+    SectionLabel("Gestures")
+    listOf(
+        "Swipe up" to "App drawer", "Swipe down" to "Notifications", "Tap search bar" to "Search, ask Solis, > commands",
+        "Swipe right" to "Files", "Swipe left" to "Solis", "Long-press" to "These settings", "Tap the mode chip" to "Switch mode",
+        "Double-tap" to "Lock", "Hold Home / assist" to "Solis (set Axiom as assist app)",
+    ).forEach { (k, v) ->
+        Row(Modifier.padding(vertical = 3.dp)) {
+            Text(k, style = lStyle(14.sp, FontWeight.Medium), modifier = Modifier.weight(0.45f))
+            Text(v, style = lStyle(14.sp, color = p.dim), modifier = Modifier.weight(0.55f))
+        }
+    }
+
+    SectionLabel("About")
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        AxiomMark(28.dp)
+        Text(
+            "  Axiom ${runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: ""} · with Solis",
+            style = lStyle(14.sp),
+        )
+    }
     Text(
-        if (vm.hasApiKey) "Saved ✓ (encrypted on device)" else "Get one at console.anthropic.com › API keys. Usage is billed to that account.",
-        style = lStyle(12.sp, color = p.dim),
+        "API keys are encrypted with the Android Keystore, never backed up, and sent only to the provider they belong to.",
+        style = lStyle(12.sp, color = p.dim), modifier = Modifier.padding(top = 6.dp),
     )
+    NavRow("Diagnostics & performance", "Startup, frames, memory, battery, Solis latency, engine state") { open("diagnostics") }
     Spacer(Modifier.height(6.dp))
-    val shape = if (Netrunner) RoundedCornerShape(2.dp) else RoundedCornerShape(14.dp)
+    Chip("Replay intro") { onClose(); vm.resetOnboarding() }
+}
+
+/** A row that opens a settings sub-page. */
+@Composable
+fun NavRow(title: String, subtitle: String?, onClick: () -> Unit) {
+    val p = LocalPalette.current
     Row(
-        Modifier.fillMaxWidth().clip(shape).background(p.surface).border(1.dp, p.faint, shape).padding(start = 14.dp, end = 4.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick).padding(vertical = 12.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Outlined.Key, null, tint = p.dim, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(10.dp))
-        Box(Modifier.weight(1f).padding(vertical = 14.dp)) {
-            if (keyDraft.isEmpty()) Text(if (vm.hasApiKey) "••••••••  (paste to replace)" else "sk-ant-…", style = lStyle(15.sp, color = p.dim))
-            BasicTextField(
-                keyDraft, { keyDraft = it.trim() }, singleLine = true,
-                textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 15.sp, color = p.fg),
-                visualTransformation = PasswordVisualTransformation(),
-                cursorBrush = SolidColor(p.accent),
-                modifier = Modifier.fillMaxWidth(),
-            )
+        Column(Modifier.weight(1f)) {
+            Text(title, style = lStyle(16.sp))
+            if (subtitle != null) Text(subtitle, style = lStyle(12.sp, color = p.dim))
         }
-        if (keyDraft.isNotEmpty()) Chip("Save", selected = true) { vm.updateApiKey(keyDraft); keyDraft = ""; vm.say("Key saved") }
-        else if (vm.hasApiKey) Chip("Remove") { vm.updateApiKey(""); vm.say("Key removed") }
-    }
-
-    if (vm.hasApiKey) {
-        Spacer(Modifier.height(12.dp))
-        Text("Model", style = lStyle(15.sp, FontWeight.Medium))
-        Spacer(Modifier.height(6.dp))
-        ClaudeAgent.MODELS.forEach { (id, label) ->
-            Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { vm.updateModel(id) }.padding(vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(if (vm.model == id) "●" else "○", style = lStyle(14.sp, color = p.accent))
-                Spacer(Modifier.width(12.dp))
-                Text(label, style = lStyle(15.sp))
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        Text("Effort", style = lStyle(15.sp, FontWeight.Medium))
-        Text("Low is snappy; high thinks harder on tricky requests.", style = lStyle(12.sp, color = p.dim))
-        Spacer(Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ClaudeAgent.EFFORTS.forEach { e -> Chip(e, vm.effort == e) { vm.updateEffort(e) } }
-        }
-        Spacer(Modifier.height(6.dp))
-        SettingSwitch("Web search", "Let Claude search the web for fresh info", vm.webSearch) { vm.updateWebSearch(it) }
-        SettingSwitch("Speak replies", "Read answers aloud", vm.speakReplies) { vm.updateSpeak(it) }
-    }
-
-    if (vm.memories.isNotEmpty()) {
-        Spacer(Modifier.height(8.dp))
-        Text("What Claude remembers", style = lStyle(15.sp, FontWeight.Medium))
-        vm.memories.forEachIndexed { i, m ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("• $m", style = lStyle(14.sp, color = p.dim), modifier = Modifier.weight(1f))
-                IconBtn(Icons.Outlined.Close, "Forget") { vm.forget(i) }
-            }
-        }
+        Icon(Icons.AutoMirrored.Outlined.ArrowForward, null, tint = p.dim)
     }
 }
 
@@ -268,7 +263,7 @@ private fun ClaudeSettings(vm: LauncherViewModel) {
 fun ThemePicker(vm: LauncherViewModel) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         ThemeMode.entries.forEach { mode ->
-            ThemeCard(mode, vm.theme == mode, Modifier.weight(1f)) { vm.applyTheme(mode) }
+            ThemeCard(mode, vm.userTheme == mode, Modifier.weight(1f)) { vm.setTheme(mode) }
         }
     }
 }
@@ -290,7 +285,7 @@ private fun ThemeCard(mode: ThemeMode, selected: Boolean, modifier: Modifier, on
         val ff = if (mono) FontFamily.Monospace else FontFamily.SansSerif
         Text("12:34", style = TextStyle(fontFamily = ff, fontSize = 22.sp, fontWeight = if (mono) FontWeight.Bold else FontWeight.Thin, color = tp.fg))
         Spacer(Modifier.height(6.dp))
-        listOf("Phone", "Claude", "Music").forEach {
+        listOf("Phone", "Solis", "Music").forEach {
             Text(if (mono) "./${it.lowercase()}" else it, style = TextStyle(fontFamily = ff, fontSize = 11.sp, color = tp.fg))
         }
         Spacer(Modifier.height(6.dp))
@@ -298,5 +293,20 @@ private fun ThemeCard(mode: ThemeMode, selected: Boolean, modifier: Modifier, on
         Spacer(Modifier.height(8.dp))
         Text(mode.title + if (selected) "  ✓" else "", style = TextStyle(fontFamily = ff, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = tp.fg))
         Text(mode.tagline, style = TextStyle(fontFamily = ff, fontSize = 9.sp, color = tp.dim), maxLines = 2)
+    }
+}
+
+/** − value + control for numbers. */
+@Composable
+fun Stepper(title: String, value: String, subtitle: String? = null, onMinus: () -> Unit, onPlus: () -> Unit) {
+    val p = LocalPalette.current
+    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = lStyle(15.sp))
+            if (subtitle != null) Text(subtitle, style = lStyle(12.sp, color = p.dim))
+        }
+        Chip("−", onClick = onMinus)
+        Text(value, style = lStyle(15.sp, FontWeight.Medium), modifier = Modifier.padding(horizontal = 10.dp))
+        Chip("+", onClick = onPlus)
     }
 }

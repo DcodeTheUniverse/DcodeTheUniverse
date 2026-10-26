@@ -1,104 +1,82 @@
 package com.axiom.launcher.data
 
 import android.content.Context
-import android.security.keystore.KeyGenParameterSpec
-import android.security.keystore.KeyProperties
-import android.util.Base64
+import android.content.SharedPreferences
 import org.json.JSONArray
 import org.json.JSONObject
-import java.security.KeyStore
-import javax.crypto.Cipher
-import javax.crypto.KeyGenerator
-import javax.crypto.SecretKey
-import javax.crypto.spec.GCMParameterSpec
 
-/** Thin persistence layer. All state lives in the ViewModel; this only reads/writes it. */
+/**
+ * Launcher preferences. Provider credentials are NOT stored here (see SecretStore), and the Solis brain's
+ * memory, threads and policies live in its own database.
+ */
 class Prefs(context: Context) {
     private val sp = context.getSharedPreferences("axiom", Context.MODE_PRIVATE)
 
-    var theme: String
-        get() = sp.getString("theme", "void") ?: "void"
-        set(v) = sp.edit().putString("theme", v).apply()
+    /** The caller must keep a strong reference to [l] (SharedPreferences holds it weakly). */
+    fun listen(l: SharedPreferences.OnSharedPreferenceChangeListener) = sp.registerOnSharedPreferenceChangeListener(l)
 
-    var userName: String
-        get() = sp.getString("user_name", "") ?: ""
-        set(v) = sp.edit().putString("user_name", v).apply()
+    private fun str(k: String, d: String) = sp.getString(k, d) ?: d
+    private fun putStr(k: String, v: String?) = sp.edit().putString(k, v).apply()
+    private fun bool(k: String, d: Boolean) = sp.getBoolean(k, d)
+    private fun putBool(k: String, v: Boolean) = sp.edit().putBoolean(k, v).apply()
 
-    var showIcons: Boolean
-        get() = sp.getBoolean("show_icons", false)
-        set(v) = sp.edit().putBoolean("show_icons", v).apply()
+    var theme: String get() = str("theme", "void"); set(v) = putStr("theme", v)
+    var userName: String get() = str("user_name", ""); set(v) = putStr("user_name", v)
+    var showIcons: Boolean get() = bool("show_icons", false); set(v) = putBool("show_icons", v)
+    var monoIcons: Boolean get() = bool("mono_icons", true); set(v) = putBool("mono_icons", v)
+    var clock24: Boolean get() = bool("clock24", true); set(v) = putBool("clock24", v)
+    var speakReplies: Boolean get() = bool("speak", false); set(v) = putBool("speak", v)
+    var effects: Boolean get() = bool("effects", true); set(v) = putBool("effects", v)
+    var autoKeyboard: Boolean get() = bool("auto_kb", true); set(v) = putBool("auto_kb", v)
+    var onboarded: Boolean get() = bool("onboarded", false); set(v) = putBool("onboarded", v)
+    /** "system" follows Android's animation setting and battery saver; "on" forces reduced motion. */
+    var reducedMotion: String get() = str("reduced_motion", "system"); set(v) = putStr("reduced_motion", v)
 
-    var monoIcons: Boolean
-        get() = sp.getBoolean("mono_icons", true)
-        set(v) = sp.edit().putBoolean("mono_icons", v).apply()
+    /** "auto" = Solis brain when a provider is set up, else hand off; "brain"; "app" = always hand off to an assistant app. */
+    var engine: String get() = str("engine", "auto"); set(v) = putStr("engine", v)
+    var webSearch: Boolean get() = bool("web_search", true); set(v) = putBool("web_search", v)
 
-    var clock24: Boolean
-        get() = sp.getBoolean("clock24", true)
-        set(v) = sp.edit().putBoolean("clock24", v).apply()
+    // ---- Solis providers & routing (credentials are in SecretStore) ----
+    var localBaseUrl: String get() = str("local_url", ""); set(v) = putStr("local_url", v.trim())
+    var localTools: Boolean get() = bool("local_tools", false); set(v) = putBool("local_tools", v)
+    var localContext: Int get() = sp.getInt("local_ctx", 8192); set(v) = sp.edit().putInt("local_ctx", v).apply()
+    /** Role name -> "provider|model". */
+    var pinnedModels: Map<String, String>
+        get() = JSONObject(str("pinned_models", "{}")).let { o -> o.keys().asSequence().associateWith { o.getString(it) } }
+        set(v) = putStr("pinned_models", JSONObject(v).toString())
+    var dailyCapUsd: Float get() = sp.getFloat("cap_day", 1.0f); set(v) = sp.edit().putFloat("cap_day", v).apply()
+    var monthlyCapUsd: Float get() = sp.getFloat("cap_month", 15f); set(v) = sp.edit().putFloat("cap_month", v).apply()
+    var narratorCapUsd: Float get() = sp.getFloat("cap_narrator", 0.05f); set(v) = sp.edit().putFloat("cap_narrator", v).apply()
+    var threadCapUsd: Float get() = sp.getFloat("cap_thread", 0.5f); set(v) = sp.edit().putFloat("cap_thread", v).apply()
+    var allowUnknownPrice: Boolean get() = bool("unknown_price", false); set(v) = putBool("unknown_price", v)
+    var maxConcurrent: Int get() = sp.getInt("max_concurrent", 3); set(v) = sp.edit().putInt("max_concurrent", v).apply()
+    var offlineMode: Boolean get() = bool("offline", false); set(v) = putBool("offline", v)
+    var workReadsPersonal: Boolean get() = bool("share_w_p", false); set(v) = putBool("share_w_p", v)
+    var personalReadsWork: Boolean get() = bool("share_p_w", false); set(v) = putBool("share_p_w", v)
+    var autoResume: Boolean get() = bool("auto_resume", false); set(v) = putBool("auto_resume", v)
 
-    var speakReplies: Boolean
-        get() = sp.getBoolean("speak", false)
-        set(v) = sp.edit().putBoolean("speak", v).apply()
+    // ---- modes & routines ----
+    var modesJson: String? get() = sp.getString("modes", null); set(v) = putStr("modes", v)
+    var routinesJson: String? get() = sp.getString("routines", null); set(v) = putStr("routines", v)
+    var activeMode: String get() = str("active_mode", "personal"); set(v) = putStr("active_mode", v)
+    var tempModeUntil: Long get() = sp.getLong("temp_until", 0); set(v) = sp.edit().putLong("temp_until", v).apply()
+    var tempModeRevert: String get() = str("temp_revert", "personal"); set(v) = putStr("temp_revert", v)
 
-    var effects: Boolean
-        get() = sp.getBoolean("effects", true)
-        set(v) = sp.edit().putBoolean("effects", v).apply()
-
-    var autoKeyboard: Boolean
-        get() = sp.getBoolean("auto_kb", true)
-        set(v) = sp.edit().putBoolean("auto_kb", v).apply()
-
-    var onboarded: Boolean
-        get() = sp.getBoolean("onboarded", false)
-        set(v) = sp.edit().putBoolean("onboarded", v).apply()
-
-    /** "app" = hand off to the Claude app (subscription), "api" = in-launcher agent with API key. */
-    var engine: String
-        get() = sp.getString("engine", "auto") ?: "auto"
-        set(v) = sp.edit().putString("engine", v).apply()
-
-    var model: String
-        get() = sp.getString("model", "claude-opus-5-5") ?: "claude-opus-5-5"
-        set(v) = sp.edit().putString("model", v).apply()
-
-    var effort: String
-        get() = sp.getString("effort", "low") ?: "low"
-        set(v) = sp.edit().putString("effort", v).apply()
-
-    var webSearch: Boolean
-        get() = sp.getBoolean("web_search", true)
-        set(v) = sp.edit().putBoolean("web_search", v).apply()
-
-    var focusUntil: Long
-        get() = sp.getLong("focus_until", 0L)
-        set(v) = sp.edit().putLong("focus_until", v).apply()
-
-    var favorites: List<String>
-        get() = readStringList("favorites")
-        set(v) = writeStringList("favorites", v)
-
-    var hidden: Set<String>
-        get() = readStringList("hidden").toSet()
-        set(v) = writeStringList("hidden", v.toList())
+    // ---- launcher state ----
+    var favorites: List<String> get() = readStringList("favorites"); set(v) = writeStringList("favorites", v)
+    var hidden: Set<String> get() = readStringList("hidden").toSet(); set(v) = writeStringList("hidden", v.toList())
 
     var distracting: Set<String>?
         get() = if (sp.contains("distracting")) readStringList("distracting").toSet() else null
         set(v) = if (v == null) sp.edit().remove("distracting").apply() else writeStringList("distracting", v.toList())
 
     var renames: Map<String, String>
-        get() {
-            val o = JSONObject(sp.getString("renames", "{}") ?: "{}")
-            return o.keys().asSequence().associateWith { o.getString(it) }
-        }
-        set(v) = sp.edit().putString("renames", JSONObject(v).toString()).apply()
-
-    var memories: List<String>
-        get() = readStringList("memories")
-        set(v) = writeStringList("memories", v)
+        get() = JSONObject(str("renames", "{}")).let { o -> o.keys().asSequence().associateWith { o.getString(it) } }
+        set(v) = putStr("renames", JSONObject(v).toString())
 
     var notes: List<Note>
         get() {
-            val arr = JSONArray(sp.getString("notes", "[]") ?: "[]")
+            val arr = JSONArray(str("notes", "[]"))
             return (0 until arr.length()).map {
                 val o = arr.getJSONObject(it)
                 Note(o.getLong("id"), o.getString("text"), o.getLong("created"), o.optBoolean("pinned"))
@@ -107,12 +85,12 @@ class Prefs(context: Context) {
         set(v) {
             val arr = JSONArray()
             v.forEach { arr.put(JSONObject().put("id", it.id).put("text", it.text).put("created", it.created).put("pinned", it.pinned)) }
-            sp.edit().putString("notes", arr.toString()).apply()
+            putStr("notes", arr.toString())
         }
 
-    /** Usage: key -> IntArray(24) launches per hour of day, plus last-launch time. */
+    /** Usage: key -> launches per hour of day. */
     fun loadUsage(): MutableMap<String, IntArray> {
-        val o = JSONObject(sp.getString("usage", "{}") ?: "{}")
+        val o = JSONObject(str("usage", "{}"))
         val out = HashMap<String, IntArray>()
         for (k in o.keys()) {
             val a = o.getJSONArray(k)
@@ -124,79 +102,16 @@ class Prefs(context: Context) {
     fun saveUsage(m: Map<String, IntArray>) {
         val o = JSONObject()
         m.forEach { (k, v) -> o.put(k, JSONArray(v.toList())) }
-        sp.edit().putString("usage", o.toString()).apply()
+        putStr("usage", o.toString())
     }
 
     fun loadRecents(): List<String> = readStringList("recents")
     fun saveRecents(v: List<String>) = writeStringList("recents", v)
 
-    fun loadChat(): List<ChatMsg> {
-        val arr = JSONArray(sp.getString("chat", "[]") ?: "[]")
-        return (0 until arr.length()).mapNotNull {
-            val o = arr.getJSONObject(it)
-            val role = runCatching { ChatRole.valueOf(o.getString("role")) }.getOrNull() ?: return@mapNotNull null
-            ChatMsg(o.getLong("id"), role, o.getString("text"), error = o.optBoolean("error"))
-        }
-    }
-
-    fun saveChat(msgs: List<ChatMsg>) {
-        val arr = JSONArray()
-        msgs.takeLast(80).forEach {
-            arr.put(JSONObject().put("id", it.id).put("role", it.role.name).put("text", it.text).put("error", it.error))
-        }
-        sp.edit().putString("chat", arr.toString()).apply()
-    }
-
-    // --- API key, encrypted with a hardware-backed Keystore key ---
-
-    var apiKey: String
-        get() {
-            val enc = sp.getString("api_key_enc", null) ?: return ""
-            return runCatching { decrypt(enc) }.getOrDefault("")
-        }
-        set(v) {
-            if (v.isBlank()) sp.edit().remove("api_key_enc").apply()
-            else sp.edit().putString("api_key_enc", encrypt(v.trim())).apply()
-        }
-
-    private fun secretKey(): SecretKey {
-        val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        (ks.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry)?.let { return it.secretKey }
-        val gen = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
-        gen.init(
-            KeyGenParameterSpec.Builder(KEY_ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
-                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                .build()
-        )
-        return gen.generateKey()
-    }
-
-    private fun encrypt(plain: String): String {
-        val c = Cipher.getInstance("AES/GCM/NoPadding")
-        c.init(Cipher.ENCRYPT_MODE, secretKey())
-        val iv = Base64.encodeToString(c.iv, Base64.NO_WRAP)
-        val body = Base64.encodeToString(c.doFinal(plain.toByteArray()), Base64.NO_WRAP)
-        return "$iv:$body"
-    }
-
-    private fun decrypt(enc: String): String {
-        val (iv, body) = enc.split(":", limit = 2)
-        val c = Cipher.getInstance("AES/GCM/NoPadding")
-        c.init(Cipher.DECRYPT_MODE, secretKey(), GCMParameterSpec(128, Base64.decode(iv, Base64.NO_WRAP)))
-        return String(c.doFinal(Base64.decode(body, Base64.NO_WRAP)))
-    }
-
     private fun readStringList(key: String): List<String> {
-        val arr = JSONArray(sp.getString(key, "[]") ?: "[]")
+        val arr = JSONArray(str(key, "[]"))
         return (0 until arr.length()).map { arr.getString(it) }
     }
 
-    private fun writeStringList(key: String, v: List<String>) {
-        sp.edit().putString(key, JSONArray(v).toString()).apply()
-    }
-
-    companion object {
-        private const val KEY_ALIAS = "axiom_api_key"
-    }
+    private fun writeStringList(key: String, v: List<String>) = putStr(key, JSONArray(v).toString())
 }

@@ -233,6 +233,9 @@ class SolisEngine(
             origin = origin,
         )
         if (parts.isNotEmpty()) attachments["$id:1"] = parts
+        // A new thread has no stored history: start its transcript empty instead of querying the store here.
+        transcripts.putIfAbsent(id, MutableStateFlow(emptyList()))
+        seqs.putIfAbsent(id, AtomicLong(0))
         _threads.update { listOf(t) + it }
         persist { store.upsertThread(t) }
         addEntry(id, 1, EntryKind.USER, clean.ifEmpty { "(attachment)" })
@@ -291,10 +294,28 @@ class SolisEngine(
         addEntry(id, t.turn, EntryKind.STATUS, if (good) "You marked this answer helpful" else "You marked this answer unhelpful")
     }
 
+    /**
+     * Pins (or with null, unpins) the model a thread uses for one role. Hard constraints still apply: a
+     * pinned model that the thread's privacy, capabilities or budget rule out is skipped with an explanation.
+     */
+    fun setThreadModel(id: String, role: CallRole, ref: ModelRef?) {
+        update(id) { it.copy(pinned = if (ref == null) it.pinned - role else it.pinned + (role to ref)) }
+    }
+
+    /** Changes a thread's permissions; takes effect from its next turn. */
+    fun setThreadPermissions(id: String, p: ThreadPermissions) {
+        if (thread(id)?.status == ThreadStatus.RUNNING) return
+        val allowed = (toolHost.tools() + engineTools()).filter { it.group in p.tools }.map { it.name }
+        update(id) { it.copy(permissions = p, toolNames = allowed) }
+    }
+
     fun thread(id: String): AgentThread? = _threads.value.firstOrNull { it.id == id }
 
     /** A thread's visible history. Loads from the store on first use; call off the main thread. */
     fun transcript(id: String): StateFlow<List<TranscriptEntry>> = transcriptFlow(id)
+
+    /** The history if it is already in memory (no I/O), so the UI can show it on the first frame. */
+    fun cachedTranscript(id: String): StateFlow<List<TranscriptEntry>>? = transcripts[id]
 
     private fun transcriptFlow(id: String): MutableStateFlow<List<TranscriptEntry>> = transcripts.getOrPut(id) {
         MutableStateFlow(store.entries(id)).also { f -> seqs.putIfAbsent(id, AtomicLong(f.value.maxOfOrNull { it.seq } ?: 0)) }
@@ -501,7 +522,7 @@ class SolisEngine(
         val user = latestUserText(id, turn)
         if (t.tier != Tier.T0 && text.isNotBlank()) withContext(io) {
             runCatching {
-                memory.remember("Asked: ${user.take(160)} — Result: ${text.take(240)}", MemoryKind.SUMMARY, Scope(t.space, id), "solis:$id", confidence = 0.7)
+                memory.remember("Asked: ${user.take(160)} — Result: ${plainText(text).replace('\n', ' ').take(240)}", MemoryKind.SUMMARY, Scope(t.space, id), "solis:$id", confidence = 0.7)
             }
         }
         if (++completions % 5 == 0) learn()

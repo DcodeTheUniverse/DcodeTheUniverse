@@ -45,6 +45,16 @@ import kotlin.random.Random
 /** True when rendering a still frame (screenshot tests): effects draw once instead of animating. */
 val LocalStillFrame = androidx.compose.runtime.staticCompositionLocalOf { false }
 
+/**
+ * True when the user asked for reduced motion (Android's "remove animations", Axiom's own setting) or
+ * when battery saver / thermal pressure is on. Decorative motion stops; state is still shown statically.
+ */
+val LocalReducedMotion = androidx.compose.runtime.compositionLocalOf { false }
+
+/** Whether decorative animation may run right now. */
+@Composable
+fun motionAllowed(): Boolean = !LocalStillFrame.current && !LocalReducedMotion.current
+
 private const val GLYPHS = "ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜ0123456789ABCDEF<>/{}[]=+*#$%"
 
 /** Classic digital rain. [intensity] 0..1 controls opacity so it can sit behind the home screen. */
@@ -52,7 +62,7 @@ private const val GLYPHS = "ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁ�
 fun MatrixRain(modifier: Modifier = Modifier, intensity: Float = 1f, color: Color = Color(0xFF00FF9C)) {
     var frame by remember { mutableLongStateOf(0L) }
     val rain = remember { RainState() }
-    val still = LocalStillFrame.current
+    val still = !motionAllowed()
     LaunchedEffect(still) {
         if (still) return@LaunchedEffect
         var last = 0L
@@ -124,7 +134,7 @@ fun GlitchText(
     val p = LocalPalette.current
     var glitch by remember { mutableIntStateOf(0) }
     var shown by remember(text) { mutableStateOf(text) }
-    val still = LocalStillFrame.current
+    val still = !motionAllowed()
     LaunchedEffect(enabled, text, still) {
         shown = text
         if (!enabled || still) return@LaunchedEffect
@@ -150,7 +160,7 @@ fun GlitchText(
 
 @Composable
 fun blinkAlpha(): Float {
-    if (LocalStillFrame.current) return 1f
+    if (!motionAllowed()) return 1f
     val t = rememberInfiniteTransition(label = "blink")
     val a by t.animateFloat(1f, 0f, infiniteRepeatable(tween(530, easing = LinearEasing), RepeatMode.Reverse), label = "a")
     return if (a > 0.5f) 1f else 0f
@@ -160,7 +170,7 @@ private val BOOT_LINES = listOf(
     "AXIOM//OS netrunner kernel 6.6.6-neon",
     "[ ok ] mounting /dev/neural0",
     "[ ok ] bypassing corporate ICE ........",
-    "[ ok ] loading claude-link daemon",
+    "[ ok ] waking solis · cortex online",
     "[ ok ] spoofing MAC 00:DE:C0:DE:13:37",
     "[warn] black ICE detected · rerouting",
     "[ ok ] tunnel established via night.city",
@@ -174,7 +184,9 @@ private val BOOT_LINES = listOf(
 fun BootSequence(onDone: () -> Unit) {
     val p = LocalPalette.current
     var count by remember { mutableIntStateOf(0) }
+    val allowed = motionAllowed()
     LaunchedEffect(Unit) {
+        if (!allowed) { onDone(); return@LaunchedEffect }
         for (i in BOOT_LINES.indices) {
             delay(if (BOOT_LINES[i].startsWith(">")) 260 else 120)
             count = i + 1

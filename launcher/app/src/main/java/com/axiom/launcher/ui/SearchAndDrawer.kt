@@ -44,6 +44,8 @@ import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.outlined.Psychology
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -77,6 +79,7 @@ import com.axiom.launcher.core.Cmd
 import com.axiom.launcher.core.DeviceInfo
 import com.axiom.launcher.data.AppCategory
 import com.axiom.launcher.data.AppInfo
+import com.axiom.launcher.platform.ProfileKind
 import com.axiom.launcher.ui.theme.LocalPalette
 import com.axiom.launcher.ui.theme.lStyle
 import kotlinx.coroutines.launch
@@ -105,7 +108,7 @@ fun SearchOverlay(vm: LauncherViewModel, onClose: () -> Unit, onAppMenu: (AppInf
             items(vm.results, key = { it.key }) { hit ->
                 HitRow(vm, hit, onAppMenu) {
                     vm.execute(hit)
-                    if (hit !is Hit.Calc && hit !is Hit.NoteItem) onClose()
+                    if (hit !is Hit.Calc && hit !is Hit.NoteItem && !(hit is Hit.Palette && hit.cmd.id == "modes")) onClose()
                 }
             }
         }
@@ -113,7 +116,7 @@ fun SearchOverlay(vm: LauncherViewModel, onClose: () -> Unit, onAppMenu: (AppInf
         InputBar(
             value = vm.query,
             onValue = { vm.query = it },
-            placeholder = if (Netrunner) "ask or exec" else "Ask Claude, search, or command",
+            placeholder = if (Netrunner) "ask solis or exec · > for commands" else "Ask Solis, search, or > command",
             focus = focus,
             onSubmit = { vm.submit(); onClose() },
             trailing = {
@@ -128,25 +131,25 @@ fun SearchOverlay(vm: LauncherViewModel, onClose: () -> Unit, onAppMenu: (AppInf
 @Composable
 private fun SearchTips(vm: LauncherViewModel) {
     val p = LocalPalette.current
-    val tips = if (vm.effectiveEngine == "api") listOf(
+    val tips = if (vm.effectiveEngine == "brain") listOf(
         "timer 10 min", "alarm 6:45am", "call mom", "text alex: running late", "note buy oat milk",
-        "navigate to the airport", "play lofi beats", "focus 45", "18% of 64.50", "what's eating my storage?",
+        "> work mode", "focus 45", "18% of 64.50", "what's eating my storage?", "plan my week",
     ) else listOf(
         "timer 10 min", "alarm 6:45am", "call mom", "note buy oat milk", "play lofi beats", "focus 45",
-        "wifi", "how do black holes form?", "neofetch",
+        "> commands", "how do black holes form?", "neofetch",
     )
     Column(Modifier.padding(vertical = 8.dp)) {
         Text(if (Netrunner) "// try" else "TRY", style = lStyle(10.sp, FontWeight.Medium, p.dim).copy(letterSpacing = 2.sp))
         Spacer(Modifier.height(8.dp))
         tips.chunked(2).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 4.dp)) {
-                row.forEach { Chip(it) { vm.query = it } }
+                row.forEach { Chip(it) { vm.query = if (it == "> commands") ">" else it } }
             }
         }
         Spacer(Modifier.height(10.dp))
         Text(
-            if (vm.effectiveEngine == "api") "Questions go to Claude inside Axiom (${com.axiom.launcher.ai.ClaudeAgent.prettyModel(vm.model)})."
-            else "Questions open the Claude app on your subscription. Add an API key in settings for the built-in agent.",
+            if (vm.effectiveEngine == "brain") "Commands run on the phone instantly. Questions become Solis tasks. Start with > for launcher commands."
+            else "Questions open the Claude app on your subscription. Connect a provider in Settings › Solis for the built-in brain.",
             style = lStyle(12.sp, color = p.dim),
         )
     }
@@ -213,8 +216,13 @@ private fun HitRow(vm: LauncherViewModel, hit: Hit, onAppMenu: (AppInfo) -> Unit
             hit.f.path.removePrefix("/storage/emulated/0").substringBeforeLast('/').ifEmpty { "/" } + if (!hit.f.isDir) " · " + DeviceInfo.human(hit.f.size) else "")
         is Hit.Setting -> Triple(Icons.Outlined.Settings, hit.title, "settings")
         is Hit.NoteItem -> Triple(Icons.Outlined.PushPin, hit.note.text, "note")
-        is Hit.Ask -> Triple(Icons.Outlined.AutoAwesome, "Ask Claude: ${hit.q}",
-            if (vm.effectiveEngine == "api") "in Axiom · ${com.axiom.launcher.ai.ClaudeAgent.prettyModel(vm.model)}" else "opens the Claude app")
+        is Hit.Thread -> Triple(Icons.Outlined.AutoAwesome, hit.thread.title, "Solis task · ${hit.thread.status.label.lowercase()}")
+        is Hit.Memory -> Triple(Icons.Outlined.Psychology, com.axiom.launcher.solis.engine.plainText(hit.item.text), "memory · ${hit.item.scope.label()} · from ${memorySource(hit.item.source)}")
+        is Hit.Mode -> Triple(Icons.Outlined.Tune, "Switch to ${hit.mode.name} mode", modeSummary(hit.mode))
+        is Hit.Palette -> Triple(Icons.Outlined.Terminal, hit.cmd.title, hit.cmd.hint)
+        is Hit.Ask -> Triple(Icons.Outlined.AutoAwesome, "Ask Solis: ${hit.q}",
+            if (vm.effectiveEngine == "brain") (if (vm.mode.aiPrivacy == com.axiom.launcher.modes.AiPrivacy.OFF) "Solis is off in ${vm.mode.name} mode" else "new task · ${vm.mode.name.lowercase()} space")
+            else "opens the Claude app")
         is Hit.Web -> Triple(Icons.Outlined.Language, "Search the web: ${hit.q}", "browser")
     }
     Row(
@@ -265,10 +273,22 @@ fun Drawer(vm: LauncherViewModel, onClose: () -> Unit, onAppMenu: (AppInfo) -> U
     LaunchedEffect(Unit) { if (vm.autoKeyboard) runCatching { focus.requestFocus() } }
 
     val all = vm.visibleApps()
-    val categories = remember(all) { listOf(AppCategory.ALL) + AppCategory.entries.filter { c -> c != AppCategory.ALL && all.any { it.category == c } } }
-    val list = remember(all, filter, category) {
-        val base = if (category == AppCategory.ALL) all else all.filter { it.category == category }
-        if (filter.isBlank()) base else vm.findApps(filter, 100).filter { category == AppCategory.ALL || it.category == category }
+    val hasWork = all.any { it.profile == ProfileKind.WORK } || vm.workProfile != null
+    val hasPrivate = all.any { it.profile == ProfileKind.PRIVATE }
+    var profileTab by remember { mutableStateOf<ProfileKind?>(null) }
+    val inTab = remember(all, profileTab) {
+        when (profileTab) {
+            null -> all.filter { it.profile != ProfileKind.PRIVATE }
+            else -> all.filter { it.profile == profileTab }
+        }
+    }
+    val categories = remember(inTab) { listOf(AppCategory.ALL) + AppCategory.entries.filter { c -> c != AppCategory.ALL && inTab.any { it.category == c } } }
+    val list = remember(inTab, filter, category) {
+        val base = if (category == AppCategory.ALL) inTab else inTab.filter { it.category == category }
+        if (filter.isBlank()) base
+        else vm.findApps(filter, 100).filter { a ->
+            (if (profileTab == null) a.profile != ProfileKind.PRIVATE else a.profile == profileTab) && (category == AppCategory.ALL || a.category == category)
+        }
     }
     val letters = remember(list, filter) { if (filter.isBlank()) list.map { it.label.first().uppercaseChar().let { c -> if (c.isLetter()) c else '#' } }.distinct() else emptyList() }
 
@@ -307,6 +327,20 @@ fun Drawer(vm: LauncherViewModel, onClose: () -> Unit, onAppMenu: (AppInfo) -> U
             )
         }
         Spacer(Modifier.height(10.dp))
+        if (hasWork || hasPrivate) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+                item { Chip("All", selected = profileTab == null) { profileTab = null; category = AppCategory.ALL } }
+                item { Chip("Personal", selected = profileTab == ProfileKind.PERSONAL) { profileTab = ProfileKind.PERSONAL; category = AppCategory.ALL } }
+                if (hasWork) item { Chip("Work", selected = profileTab == ProfileKind.WORK) { profileTab = ProfileKind.WORK; category = AppCategory.ALL } }
+                if (hasPrivate) item { Chip("Private", selected = profileTab == ProfileKind.PRIVATE) { profileTab = ProfileKind.PRIVATE; category = AppCategory.ALL } }
+            }
+        }
+        if (profileTab == ProfileKind.WORK || (profileTab == null && vm.workProfile?.paused == true)) vm.workProfile?.let { wp ->
+            Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(if (wp.paused) "Work apps are paused" else "Work apps are on", style = lStyle(13.sp, color = p.dim), modifier = Modifier.weight(1f))
+                Chip(if (wp.paused) "Turn on" else "Pause") { vm.setWorkPaused(!wp.paused) }
+            }
+        }
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(categories) { c -> Chip(c.title.lowercase().let { if (Netrunner) it else c.title }, selected = c == category) { category = c } }
         }

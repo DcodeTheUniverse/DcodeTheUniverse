@@ -59,8 +59,14 @@ data class AppInfo(
     val user: UserHandle,
     val isWork: Boolean,
     val category: AppCategory,
+    val profile: com.axiom.launcher.platform.ProfileKind = if (isWork) com.axiom.launcher.platform.ProfileKind.WORK else com.axiom.launcher.platform.ProfileKind.PERSONAL,
+    /** Its profile is paused (work profile turned off). */
+    val paused: Boolean = false,
+    /** Suspended by the system (e.g. app timer / digital wellbeing / admin). */
+    val suspended: Boolean = false,
 ) {
     val packageName: String get() = component.packageName
+    val runnable: Boolean get() = !paused && !suspended
 }
 
 data class Note(val id: Long, val text: String, val created: Long, val pinned: Boolean = false)

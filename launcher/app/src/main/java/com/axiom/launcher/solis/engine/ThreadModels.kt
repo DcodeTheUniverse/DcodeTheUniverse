@@ -351,3 +351,17 @@ open class InMemoryBrainStore : BrainStore {
     override fun loadLedger(since: Long) = synchronized(lock) { ledger.filter { it.ts >= since } }
     override fun addLedger(e: LedgerEntry) = synchronized(lock) { ledger += e; Unit }
 }
+
+/** Markdown → plain text, for one-line previews, notifications and memory summaries. */
+fun plainText(md: String): String = md
+    .replace(Regex("```[A-Za-z0-9]*\\n?"), "")
+    .replace(Regex("\\*\\*(.+?)\\*\\*"), "$1")
+    .replace(Regex("__(.+?)__"), "$1")
+    .replace(Regex("(?<![\\w*])\\*(?!\\s)(.+?)(?<!\\s)\\*(?![\\w*])"), "$1")
+    .replace(Regex("`([^`]*)`"), "$1")
+    .replace(Regex("(?m)^#{1,6}\\s+"), "")
+    .replace(Regex("(?m)^\\s*[-*]\\s+"), "• ")
+    .replace(Regex("\\[([^\\]]+)]\\([^)]+\\)"), "$1")
+
+/** The thread's one truthful status line: narration if any, else the deterministic status text. */
+val AgentThread.statusLine: String get() = (narration ?: statusText).takeIf { it.isNotBlank() } ?: status.label

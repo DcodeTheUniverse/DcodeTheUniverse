@@ -156,6 +156,19 @@ object CommandParser {
         return null
     }
 
+    private val compoundRe = Regex("\\b(and|then|also|after that|afterwards|plus)\\b|;", RegexOption.IGNORE_CASE)
+
+    /**
+     * True when [raw] asks for more than [cmd] does ("wake me at 6:30 and remind me to pack"), so running
+     * just the command would silently drop part of the request. Commands whose argument is free text
+     * (messages, notes, searches, song or place names) may contain "and".
+     */
+    fun isCompound(raw: String, cmd: Cmd): Boolean {
+        if (cmd is Cmd.Text || cmd is Cmd.Email || cmd is Cmd.Note || cmd is Cmd.Remember || cmd is Cmd.Web ||
+            cmd is Cmd.Play || cmd is Cmd.Navigate || cmd is Cmd.Url) return false
+        return compoundRe.containsMatchIn(raw)
+    }
+
     private val questionStarts = listOf(
         "what", "why", "how", "who", "when", "where", "which", "can ", "could ", "should ", "would ", "is ", "are ",
         "do ", "does ", "explain", "write", "draft", "summarize", "summarise", "translate", "help", "tell me",

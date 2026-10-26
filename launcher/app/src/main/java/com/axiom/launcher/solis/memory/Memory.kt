@@ -215,7 +215,7 @@ class MemoryService(private val store: MemoryPersistence, private val clock: () 
         val clean = text.trim().take(MAX_TEXT)
         require(clean.isNotEmpty()) { "empty memory" }
         val now = clock()
-        val dup = items.values.firstOrNull { it.scope == scope && it.kind == kind && similar(it.text, clean) }
+        val dup = findDuplicate(clean, kind, scope)
         val item = if (dup != null) {
             dup.copy(text = clean, updatedAt = now, confidence = maxOf(dup.confidence, confidence),
                 uncertainty = uncertainty ?: dup.uncertainty, version = dup.version + 1, tags = (dup.tags + tags).distinct(),
@@ -280,6 +280,21 @@ class MemoryService(private val store: MemoryPersistence, private val clock: () 
         victims.forEach { items.remove(it.id); index.remove(it.id); store.deleteMemory(it.id) }
     }
 
+    /**
+     * A near-duplicate shares almost all of its tokens with [clean], so it is among the best lexical
+     * matches in the index: only those few candidates are compared, instead of every stored item.
+     */
+    private fun findDuplicate(clean: String, kind: MemoryKind, scope: Scope): MemoryItem? {
+        if (MemoryIndex.tokenize(clean).isEmpty()) {
+            return items.values.firstOrNull { it.scope == scope && it.kind == kind && it.text.equals(clean, ignoreCase = true) }
+        }
+        return index.score(clean).entries
+            .mapNotNull { e -> items[e.key]?.takeIf { it.scope == scope && it.kind == kind }?.let { it to e.value } }
+            .sortedByDescending { it.second }
+            .take(DUP_CANDIDATES)
+            .firstOrNull { similar(it.first.text, clean) }?.first
+    }
+
     private fun similar(a: String, b: String): Boolean {
         val ta = MemoryIndex.tokenize(a).toSet()
         val tb = MemoryIndex.tokenize(b).toSet()
@@ -319,6 +334,7 @@ class MemoryService(private val store: MemoryPersistence, private val clock: () 
     companion object {
         const val MAX_ITEMS = 5000
         const val MAX_TEXT = 2000
+        private const val DUP_CANDIDATES = 20
 
         fun toJson(m: MemoryItem): JSONObject = JSONObject()
             .put("id", m.id).put("kind", m.kind.name).put("text", m.text).put("scope", m.scope.key)
