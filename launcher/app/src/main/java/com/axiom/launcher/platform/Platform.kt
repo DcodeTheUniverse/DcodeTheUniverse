@@ -84,6 +84,7 @@ class SecretStore(context: Context) {
         const val OPENROUTER = "openrouter_key"
         const val ANTHROPIC = "anthropic_key"
         const val LOCAL = "local_key"
+        const val GITHUB = "github_token"
     }
 }
 

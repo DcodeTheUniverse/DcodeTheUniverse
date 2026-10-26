@@ -97,6 +97,12 @@ fun LauncherRoot(vm: LauncherViewModel, homeTicks: Int) {
             vm.pageRequest = null
         }
     }
+    LaunchedEffect(vm.voiceRequest) {
+        if (vm.voiceRequest > 0) {
+            delay(300)
+            startVoice { vm.sendSolis(it) }
+        }
+    }
     LaunchedEffect(vm.overlayRequest) {
         vm.overlayRequest?.let { overlay = it; vm.overlayRequest = null }
     }

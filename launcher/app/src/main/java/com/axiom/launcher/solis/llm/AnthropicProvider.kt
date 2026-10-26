@@ -14,6 +14,7 @@ import com.anthropic.errors.UnauthorizedException
 import com.anthropic.helpers.BetaMessageAccumulator
 import com.anthropic.models.beta.messages.BetaBase64ImageSource
 import com.anthropic.models.beta.messages.BetaBase64PdfSource
+import com.anthropic.models.beta.messages.BetaCacheControlEphemeral
 import com.anthropic.models.beta.messages.BetaContentBlock
 import com.anthropic.models.beta.messages.BetaContentBlockParam
 import com.anthropic.models.beta.messages.BetaImageBlockParam
@@ -23,6 +24,7 @@ import com.anthropic.models.beta.messages.BetaOutputConfig
 import com.anthropic.models.beta.messages.BetaRawMessageStreamEvent
 import com.anthropic.models.beta.messages.BetaRequestDocumentBlock
 import com.anthropic.models.beta.messages.BetaStopReason
+import com.anthropic.models.beta.messages.BetaTextBlockParam
 import com.anthropic.models.beta.messages.BetaTool
 import com.anthropic.models.beta.messages.BetaToolResultBlockParam
 import com.anthropic.models.beta.messages.BetaToolUseBlockParam
@@ -154,6 +156,7 @@ class AnthropicProvider(
                 inputTokens = (usage.inputTokens() + usage.cacheReadInputTokens().orElse(0L) + usage.cacheCreationInputTokens().orElse(0L)).toInt(),
                 outputTokens = usage.outputTokens().toInt(),
                 cachedInputTokens = usage.cacheReadInputTokens().orElse(0L).toInt(),
+                cacheWriteTokens = usage.cacheCreationInputTokens().orElse(0L).toInt(),
             )
         )
         if (stop == BetaStopReason.REFUSAL) {
@@ -187,12 +190,17 @@ class AnthropicProvider(
         return out
     }
 
-    private fun params(r: ChatRequest): MessageCreateParams {
+    internal fun params(r: ChatRequest): MessageCreateParams {
         val b = MessageCreateParams.builder()
             .model(r.model)
             .maxTokens(r.maxOutputTokens.toLong())
-            .system(r.system)
             .messages(toParams(r.messages, r.model))
+        if (r.cachePrefix && r.system.isNotBlank()) {
+            // An explicit breakpoint on the frozen system prompt caches tools + system for every task that shares
+            // them; top-level automatic caching then moves a second breakpoint along the growing conversation.
+            b.systemOfBetaTextBlockParams(listOf(BetaTextBlockParam.builder().text(r.system).cacheControl(BetaCacheControlEphemeral.builder().build()).build()))
+            b.cacheControl(BetaCacheControlEphemeral.builder().build())
+        } else if (r.system.isNotBlank()) b.system(r.system)
         r.effort?.let { b.outputConfig(BetaOutputConfig.builder().effort(BetaOutputConfig.Effort.of(it.wire)).build()) }
         r.tools.forEach { t ->
             val schema = JSONObject(t.parametersSchema)

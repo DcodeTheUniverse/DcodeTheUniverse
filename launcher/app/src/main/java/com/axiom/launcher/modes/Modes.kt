@@ -174,6 +174,11 @@ data class Routine(
                 hour = 9, minute = 0, action = RoutineAction.SwitchMode("work")),
             Routine(name = "Evening", enabled = false, days = setOf(Calendar.MONDAY, Calendar.TUESDAY, Calendar.WEDNESDAY, Calendar.THURSDAY, Calendar.FRIDAY),
                 hour = 18, minute = 0, action = RoutineAction.SwitchMode("personal")),
+            // Off until the user turns it on; even then it asks on the home screen before using AI.
+            Routine(name = "Morning brief", enabled = false, days = setOf(Calendar.MONDAY, Calendar.TUESDAY, Calendar.WEDNESDAY, Calendar.THURSDAY, Calendar.FRIDAY),
+                hour = 7, minute = 30, action = RoutineAction.AskSolis(
+                    "Give me my morning brief: today's agenda, anything notable in my notifications and notes, battery, any Claude Code jobs that need me, " +
+                        "and one suggestion for what to focus on. Keep it short.", allowAi = false, budgetUsd = 0.05)),
         )
     }
 }

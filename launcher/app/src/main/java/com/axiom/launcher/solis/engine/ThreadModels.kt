@@ -48,6 +48,7 @@ enum class ToolGroup(val label: String) {
     MEMORY("Recall and remember"),
     WEB("Web search"),
     DELEGATE("Start other Solis tasks"),
+    CODE("Coding with Claude Code (GitHub)"),
 }
 
 data class ThreadPermissions(
@@ -87,19 +88,22 @@ data class ThreadUsage(
     val outputTokens: Int = 0,
     val costUsd: Double = 0.0,
     val byRole: Map<String, Double> = emptyMap(),
+    /** Input tokens served from the provider's prompt cache (billed at a fraction of the input price). */
+    val cachedTokens: Int = 0,
 ) {
-    fun plus(role: CallRole, inTok: Int, outTok: Int, cost: Double) = copy(
+    fun plus(role: CallRole, inTok: Int, outTok: Int, cost: Double, cached: Int = 0) = copy(
         calls = calls + 1, inputTokens = inputTokens + inTok, outputTokens = outputTokens + outTok, costUsd = costUsd + cost,
-        byRole = byRole + (role.name to ((byRole[role.name] ?: 0.0) + cost)),
+        byRole = byRole + (role.name to ((byRole[role.name] ?: 0.0) + cost)), cachedTokens = cachedTokens + cached,
     )
 
     fun toJson(): JSONObject = JSONObject().put("calls", calls).put("in", inputTokens).put("out", outputTokens)
-        .put("cost", costUsd).put("byRole", JSONObject(byRole))
+        .put("cost", costUsd).put("byRole", JSONObject(byRole)).put("cached", cachedTokens)
 
     companion object {
         fun fromJson(o: JSONObject?): ThreadUsage = if (o == null) ThreadUsage() else ThreadUsage(
             o.optInt("calls"), o.optInt("in"), o.optInt("out"), o.optDouble("cost", 0.0),
             o.optJSONObject("byRole")?.let { b -> b.keys().asSequence().associateWith { b.getDouble(it) } } ?: emptyMap(),
+            o.optInt("cached"),
         )
     }
 }

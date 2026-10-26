@@ -214,6 +214,7 @@ class OpenAiCompatProvider(
                     cachedInputTokens = pt?.optInt("cached_tokens") ?: 0,
                     reasoningTokens = ct?.optInt("reasoning_tokens") ?: 0,
                     costUsd = if (u.has("cost") && !u.isNull("cost")) u.optDouble("cost").takeIf { !it.isNaN() } else null,
+                    cacheWriteTokens = pt?.optInt("cache_write_tokens") ?: 0,
                 )
                 if (!send(ev)) return false
             }
@@ -269,8 +270,11 @@ class OpenAiCompatProvider(
         o.put("stream", true)
         o.put("max_tokens", r.maxOutputTokens)
         val msgs = JSONArray()
-        if (r.system.isNotBlank()) msgs.put(JSONObject().put("role", "system").put("content", r.system))
-        for (m in r.messages) msgs.put(message(m, r.model))
+        val cache = r.cachePrefix && flavor == Flavor.OPENROUTER && explicitCache(r.model)
+        if (r.system.isNotBlank()) msgs.put(JSONObject().put("role", "system").put("content",
+            if (cache) JSONArray().put(JSONObject().put("type", "text").put("text", r.system).put("cache_control", EPHEMERAL)) else r.system))
+        val lastUser = if (cache) r.messages.indexOfLast { it.role == ChatRole.USER } else -1
+        r.messages.forEachIndexed { i, m -> msgs.put(message(m, r.model, cacheMark = i == lastUser)) }
         o.put("messages", msgs)
         if (r.tools.isNotEmpty()) {
             o.put("tools", JSONArray().apply {
@@ -296,8 +300,8 @@ class OpenAiCompatProvider(
         return o
     }
 
-    private fun message(m: ChatMessage, model: String): JSONObject = when (m.role) {
-        ChatRole.USER -> JSONObject().put("role", "user").put("content", userContent(m))
+    private fun message(m: ChatMessage, model: String, cacheMark: Boolean = false): JSONObject = when (m.role) {
+        ChatRole.USER -> JSONObject().put("role", "user").put("content", userContent(m, cacheMark))
         ChatRole.TOOL -> JSONObject().put("role", "tool").put("tool_call_id", m.toolCallId).put("content", m.text)
         ChatRole.ASSISTANT -> JSONObject().apply {
             put("role", "assistant")
@@ -316,8 +320,22 @@ class OpenAiCompatProvider(
         }
     }
 
-    private fun userContent(m: ChatMessage): Any {
+    private fun userContent(m: ChatMessage, cacheMark: Boolean): Any {
+        if (cacheMark) {
+            // Breakpoint after the latest user turn: later tool rounds re-read everything up to here from cache.
+            val arr = userParts(m)
+            for (i in arr.length() - 1 downTo 0) {
+                val part = arr.getJSONObject(i)
+                if (part.optString("type") == "text") { part.put("cache_control", EPHEMERAL); return arr }
+            }
+            return arr
+        }
         if (m.parts.all { it is ContentPart.Text }) return m.text
+        return userParts(m)
+    }
+
+    private fun userParts(m: ChatMessage): JSONArray {
+        if (m.parts.all { it is ContentPart.Text }) return JSONArray().put(JSONObject().put("type", "text").put("text", m.text))
         return JSONArray().apply {
             m.parts.forEach { p ->
                 when (p) {
@@ -377,6 +395,13 @@ class OpenAiCompatProvider(
     }
 
     companion object {
+        /**
+         * Models that only cache with explicit `cache_control` breakpoints (Anthropic's, via OpenRouter). Most
+         * other vendors cache prompt prefixes automatically and need nothing in the request.
+         */
+        fun explicitCache(model: String): Boolean = model.trimStart('~').startsWith("anthropic/")
+
+        private val EPHEMERAL get() = JSONObject().put("type", "ephemeral")
         const val OPENROUTER_URL = "https://openrouter.ai/api/v1"
         const val APP_TITLE = "Axiom Launcher"
         const val APP_URL = "https://github.com/DcodeTheUniverse/DcodeTheUniverse"

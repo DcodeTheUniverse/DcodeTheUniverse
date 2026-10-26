@@ -292,7 +292,9 @@ class EngineTest {
         val rig = Rig(providers = listOf(p)).start()
         rig.engine.awaitStarted()
         val m = rig.engine.policies.active().matrix
-        rig.engine.policies.applyUserEdit(m.copy(narrator = m.narrator.copy(coalesceMs = 150, minIntervalMs = 0)), "fast narrator for test")
+        // A window wide enough that a busy test JVM still delivers the steps and the completion in one batch,
+        // and a minimum interval so a late event can't buy a second call.
+        rig.engine.policies.applyUserEdit(m.copy(narrator = m.narrator.copy(coalesceMs = 1_200, minIntervalMs = 60_000)), "narrator for test")
         val simple = accepted(rig.engine.submit("What's 2+2 in words?", Space.PERSONAL, "personal"))
         awaitStatus(rig, simple, ThreadStatus.DONE)
         val multi = accepted(rig.engine.submit("Research A and then compare B, then plan C carefully with a detailed itinerary", Space.PERSONAL, "personal"))

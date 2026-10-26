@@ -77,6 +77,12 @@ data class ChatRequest(
     val inferenceFallbacks: List<String> = emptyList(),
     /** Let the provider run its own web search, if it offers one. */
     val webSearch: Boolean = false,
+    /**
+     * Mark the stable prefix (tools + system) and the conversation so far as cacheable, for providers that
+     * need explicit cache breakpoints. Worth it when the same prefix is sent again within minutes (tool loops,
+     * several tasks in a row); a one-off call would only pay the cache-write premium.
+     */
+    val cachePrefix: Boolean = false,
 )
 
 enum class FinishReason { STOP, TOOL_CALLS, LENGTH, CONTENT_FILTER, REFUSAL, ERROR }
@@ -90,9 +96,12 @@ sealed interface LlmEvent {
     data class Usage(
         val inputTokens: Int,
         val outputTokens: Int,
+        /** Part of [inputTokens] read from the prompt cache. */
         val cachedInputTokens: Int = 0,
         val reasoningTokens: Int = 0,
         val costUsd: Double? = null,
+        /** Part of [inputTokens] written to the prompt cache. */
+        val cacheWriteTokens: Int = 0,
     ) : LlmEvent
 
     data class Finish(

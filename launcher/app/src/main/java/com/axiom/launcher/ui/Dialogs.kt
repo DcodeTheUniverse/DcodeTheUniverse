@@ -326,7 +326,7 @@ fun Onboarding(vm: LauncherViewModel) {
             InputBar(name, { name = it }, "Your name", onSubmit = { vm.updateName(name) })
             SectionLabel("Meet Solis")
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
-                com.axiom.launcher.ui.solis.SolisFace(vm.face, size = 56.dp)
+                com.axiom.launcher.ui.solis.SolisFace(vm.face, size = 66.dp)
                 Spacer(Modifier.width(14.dp))
                 Text(
                     "Solis plans tasks, picks the right model for each, works with your apps and files, and keeps going in the background. Basic launcher features never need it.",

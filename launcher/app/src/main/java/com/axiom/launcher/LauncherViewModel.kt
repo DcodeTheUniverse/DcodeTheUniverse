@@ -38,6 +38,7 @@ import com.axiom.launcher.modes.WorkApps
 import com.axiom.launcher.platform.ProfileInfo
 import com.axiom.launcher.platform.ProfileKind
 import com.axiom.launcher.solis.SolisHost
+import com.axiom.launcher.solis.coding.CodingJob
 import com.axiom.launcher.solis.cortex.CallRole
 import com.axiom.launcher.solis.cortex.DecisionMatrix
 import com.axiom.launcher.solis.cortex.DeviceSnapshot
@@ -49,6 +50,7 @@ import com.axiom.launcher.solis.engine.SubmitResult
 import com.axiom.launcher.solis.engine.ThreadStatus
 import com.axiom.launcher.solis.llm.ContentPart
 import com.axiom.launcher.solis.llm.ModelRef
+import com.axiom.launcher.solis.memory.MemoryActivity
 import com.axiom.launcher.solis.memory.MemoryItem
 import com.axiom.launcher.solis.memory.MemoryKind
 import com.axiom.launcher.solis.memory.Scope
@@ -90,10 +92,15 @@ sealed class Hit(val key: String) {
     class Palette(val cmd: PaletteCmd) : Hit("pal:" + cmd.id)
     class Ask(val q: String) : Hit("ask")
     class Web(val q: String) : Hit("web")
+    /** "code: …" — hand the text straight to Claude Code as an issue in the default repository (no model). */
+    class Code(val spec: String) : Hit("code")
 }
 
 /** A command-palette entry (omnibox input starting with ">"). */
 class PaletteCmd(val id: String, val title: String, val hint: String, val run: () -> Unit)
+
+/** "code: fix the login crash", "claude code: …", "cc: …" */
+private val CODE_PREFIX = Regex("^(?:code|cc|claude code)\\s*:\\s*(.+)$|^claude code\\s+(.+)$", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
 
 const val BRIEF_PROMPT = "Give me my brief for right now: agenda, anything notable in my notifications and notes, battery, and one suggestion for what to focus on. Keep it short."
 const val DIGEST_PROMPT = "Summarize my notifications: group by app, surface anything that needs a reply or action first, and skip the noise."
@@ -166,6 +173,14 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
     var solisDraft by mutableStateOf("")
     var pendingAttachment by mutableStateOf<Attachment?>(null)
     var memoryFocus by mutableStateOf<String?>(null)
+    /** Memory overlay shows the brain graph instead of the list. */
+    var brainView by mutableStateOf(false)
+    /** Bumped by the Quick Settings tile: open voice capture on the Solis page. */
+    var voiceRequest by mutableIntStateOf(0)
+    var codingJobs by mutableStateOf<List<CodingJob>>(emptyList()); private set
+    var brainActivity by mutableStateOf<List<MemoryActivity>>(emptyList()); private set
+    var githubConnected by mutableStateOf(false); private set
+    var codingSetup by mutableStateOf<List<String>>(emptyList()); private set
     val face: Mood get() = if (listening) Mood.LISTENING else mood
     private val speakOnDone = HashSet<String>()
 
@@ -210,6 +225,8 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
         // Skip the initial value: the first key read decrypts via the Keystore, which happens on IO below.
         s.launch { solis.catalogRevision.drop(1).collect { catalogRevision = it; providersConfigured = solis.anyProvider } }
         s.launch { solis.pendingAsks.collect { pendingAsks = it } }
+        s.launch { solis.coding.jobs.collect { codingJobs = it } }
+        s.launch { solis.brainActivity.collect { brainActivity = it } }
         s.launch {
             var last = theme
             snapshotFlow { theme }.collect { t ->
@@ -219,7 +236,8 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
         }
         s.launch(Dispatchers.IO) {
             val configured = solis.anyProvider
-            withContext(Dispatchers.Main) { providersConfigured = configured }
+            val gh = solis.githubConnected
+            withContext(Dispatchers.Main) { providersConfigured = configured; githubConnected = gh }
         }
         observeQuery()
         s.launch(Dispatchers.IO) { runCatching { files.ensureIndex() } }
@@ -478,6 +496,7 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
         if (q.isEmpty()) return emptyList()
         if (q.startsWith(">")) return palette(q.removePrefix(">").trim()).map { Hit.Palette(it) }
         val out = ArrayList<Hit>()
+        CODE_PREFIX.find(q)?.let { m -> m.groupValues.drop(1).firstOrNull { it.isNotBlank() }?.let { spec -> out += Hit.Code(spec.trim()) } }
         Calc.tryEval(q)?.let { out += Hit.Calc(q, it) }
         val cmd = CommandParser.parse(q)
         // "wake me at 6:30 and remind me to pack": running only the alarm would drop half the request.
@@ -511,7 +530,9 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
         val all = buildList {
             add(PaletteCmd("new", "New Solis task", "solis") { selectedThread = null; pageRequest = PAGE_SOLIS })
             add(PaletteCmd("tasks", "Task overview", "solis") { overlayRequest = Overlay.TASKS })
-            add(PaletteCmd("memory", "Memory inspector", "solis") { overlayRequest = Overlay.MEMORY })
+            add(PaletteCmd("memory", "Memory inspector", "solis") { brainView = false; overlayRequest = Overlay.MEMORY })
+            add(PaletteCmd("brain", "Brain view: memory graph", "solis") { brainView = true; overlayRequest = Overlay.MEMORY })
+            add(PaletteCmd("coding", if (codingJobs.any { it.active }) "Coding jobs (${codingJobs.count { it.active }} active)" else "Coding jobs", "code") { overlayRequest = Overlay.TASKS })
             if (running) add(PaletteCmd("pauseall", "Pause all Solis tasks", "solis") { pauseAll() })
             if (resumable) add(PaletteCmd("resumeall", "Resume paused tasks", "solis") { resumeAll() })
             modes.filter { it.id != mode.id }.forEach { m -> add(PaletteCmd("mode:${m.id}", "Switch to ${m.name} mode", "mode") { switchMode(m.id) }) }
@@ -525,7 +546,8 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
             }
             add(PaletteCmd("catalog", "Refresh model catalogs", "solis") { refreshCatalogs() })
             listOf("providers" to "Providers & models", "cortex" to "Cortex & routing", "budget" to "Budget & usage",
-                "modes" to "Modes & routines", "privacy" to "Privacy & memory sharing", "diagnostics" to "Diagnostics & performance",
+                "modes" to "Modes & routines", "privacy" to "Privacy & memory sharing", "coding" to "Coding with Claude Code",
+                "diagnostics" to "Diagnostics & performance",
             ).forEach { (k, v) -> add(PaletteCmd("set:$k", "Settings: $v", "settings") { settingsSection = k; overlayRequest = Overlay.SETTINGS }) }
             add(PaletteCmd("lock", "Lock screen", "system") { lockScreen() })
             add(PaletteCmd("home", "Set Axiom as default home app", "system") { actions.chooseDefaultLauncher() })
@@ -556,11 +578,12 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
             is Hit.Setting -> actions.openSettings(hit.panel)
             is Hit.NoteItem -> say(hit.note.text)
             is Hit.Thread -> { selectedThread = hit.thread.id; pageRequest = PAGE_SOLIS }
-            is Hit.Memory -> { memoryFocus = hit.item.id; overlayRequest = Overlay.MEMORY }
+            is Hit.Memory -> { memoryFocus = hit.item.id; brainView = false; overlayRequest = Overlay.MEMORY }
             is Hit.Mode -> switchMode(hit.mode.id)
             is Hit.Palette -> hit.cmd.run()
             is Hit.Ask -> ask(hit.q, speak = fromVoice)
             is Hit.Web -> actions.webSearch(hit.q)
+            is Hit.Code -> codeDirect(hit.spec)
         }
         if (hit !is Hit.Calc) query = ""
     }
@@ -759,6 +782,72 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
         scaled.compress(Bitmap.CompressFormat.JPEG, 85, bos)
         return ContentPart.Image("image/jpeg", Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP))
     }
+
+    /** Content shared into Axiom ("Share → Ask Solis"): prefill the draft and attach the file. */
+    fun receiveShared(text: String?, path: String?) {
+        if (!text.isNullOrBlank()) solisDraft = text.take(8000)
+        if (!path.isNullOrBlank()) attachFile(path)
+        if (!text.isNullOrBlank() || !path.isNullOrBlank()) selectedThread = null
+    }
+
+    // ================= coding bridge =================
+
+    /** Files [spec] as a Claude Code issue in the default repository, with no model call. */
+    fun codeDirect(spec: String) {
+        if (!githubConnected) { say("Connect GitHub first"); settingsSection = "coding"; overlayRequest = Overlay.SETTINGS; return }
+        if (prefs.githubRepo.isBlank()) { say("Choose a default repository"); settingsSection = "coding"; overlayRequest = Overlay.SETTINGS; return }
+        viewModelScope.launch {
+            say("Sending to Claude Code…")
+            val r = runCatching { solis.codeDirect(spec) }
+            r.onSuccess { say("Filed ${it.id} for Claude Code"); overlayRequest = Overlay.TASKS }.onFailure { say(it.message ?: "Couldn't reach GitHub") }
+        }
+    }
+
+    private fun codingCall(done: ((String) -> String)? = null, block: suspend () -> String) {
+        viewModelScope.launch {
+            val r = runCatching { withContext(Dispatchers.IO) { block() } }
+            say(r.fold({ done?.invoke(it) ?: it }, { it.message ?: "GitHub request failed" }))
+        }
+    }
+
+    fun recheckCoding(id: String) = codingCall { solis.coding.refresh(id).let { "${it.state.label}: ${it.detail}" } }
+    fun openCodingPr(id: String) = codingCall { solis.coding.openPullRequest(id).let { "Opened PR #${it.pr}" } }
+    fun mergeCoding(id: String) = codingCall { solis.coding.merge(id) }
+    fun dismissMerge(id: String) = solis.coding.dismissMerge(id)
+    fun stopWatchingCoding(id: String) = solis.coding.stopWatching(id)
+    fun forgetCoding(id: String) = solis.coding.forget(id)
+
+    /** Opens the job's work in Claude Code on the web, with the request copied for pasting. */
+    fun continueInClaudeCode(job: CodingJob) {
+        copyToClipboard("In ${job.repo}: ${job.title}\n\n${job.url}")
+        actions.openUrl("https://claude.ai/code")
+        say("Task copied — paste it into Claude Code")
+    }
+
+    fun saveGithubToken(token: String?) {
+        viewModelScope.launch {
+            say(if (token.isNullOrBlank()) "Disconnecting GitHub…" else "Checking GitHub token…")
+            val msg = solis.setGithubToken(token)
+            githubConnected = solis.githubConnected
+            settingsRevision++
+            say(msg)
+        }
+    }
+
+    fun setGithubRepo(repo: String) { prefs.githubRepo = repo; settingsRevision++ }
+
+    suspend fun githubRepos(): List<String> = withContext(Dispatchers.IO) { runCatching { solis.github.repos(40).map { it.fullName } }.getOrDefault(emptyList()) }
+
+    fun checkCodingSetup() {
+        codingSetup = listOf("Checking…")
+        viewModelScope.launch {
+            codingSetup = runCatching { withContext(Dispatchers.IO) { solis.coding.checkSetup(prefs.githubRepo) } }.getOrElse { listOf("✗ ${it.message}") }
+        }
+    }
+
+    fun installClaudeWorkflow() = codingCall { solis.coding.installWorkflow(prefs.githubRepo).also { withContext(Dispatchers.Main) { checkCodingSetup() } } }
+
+    fun copyWorkflow() { copyToClipboard(com.axiom.launcher.solis.coding.CodingBridge.WORKFLOW); say("Workflow YAML copied") }
 
     // ================= memory inspector =================
 

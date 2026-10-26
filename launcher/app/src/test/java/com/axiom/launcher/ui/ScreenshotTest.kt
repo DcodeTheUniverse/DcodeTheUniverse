@@ -235,6 +235,85 @@ class ScreenshotTest {
         }
     }
 
+    /** The 3D head up close, in every state, to check shading, depth and glow. */
+    @Test
+    fun facesLarge() = listOf(ThemeMode.VOID, ThemeMode.PAPER, ThemeMode.NETRUNNER).forEach { mode ->
+        shot("faces_large_${mode.id}") {
+            Frame(mode) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    listOf(Mood.IDLE to Mood.THINKING, Mood.WORKING to Mood.LISTENING, Mood.PAUSED to Mood.ERROR).forEach { (a, b) ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            listOf(a, b).forEach { m ->
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    SolisFace(m, size = 170.dp)
+                                    Text(m.caption(), style = lStyle(14.sp))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /** Memory as a brain: hemispheres, task clusters, links, and memories Solis just recalled ringed (still mode). */
+    @Test
+    fun brain() {
+        val vm = vm()
+        val done = seedTasks(vm)
+        val mem = vm.solis.memory
+        listOf(
+            "Prefers window seats and early flights" to MemoryKind.PREFERENCE,
+            "Lisbon trip: flights booked for October 12" to MemoryKind.FACT,
+            "Lisbon trip: staying near Alfama" to MemoryKind.FACT,
+            "Vegetarian, but eats fish" to MemoryKind.PREFERENCE,
+            "Decided to skip checked luggage" to MemoryKind.DECISION,
+            "Sister Ana lives in Porto" to MemoryKind.FACT,
+            "Gym on Monday and Thursday mornings" to MemoryKind.NOTE,
+            "Coffee: flat white, oat milk" to MemoryKind.PREFERENCE,
+        ).forEach { (t, k) -> mem.remember(t, k, Scope(Space.PERSONAL), "you", 0.9, pinned = t.startsWith("Vegetarian")) }
+        listOf(
+            "Team standup is at 9:30 on weekdays" to MemoryKind.FACT,
+            "Quarterly report due Friday" to MemoryKind.FACT,
+            "Quarterly report uses the new template" to MemoryKind.DECISION,
+            "Prefers async updates over meetings" to MemoryKind.PREFERENCE,
+            "Repo octo/app is the main project" to MemoryKind.NOTE,
+        ).forEach { (t, k) -> mem.remember(t, k, Scope(Space.WORK), "you", 0.9) }
+        mem.remember("Shortlisted three tascas in Alfama", MemoryKind.NOTE, Scope(Space.PERSONAL, done), "solis:$done")
+        idleFor(300)
+        vm.solis.debugClearBrainActivity()
+        mem.search("Lisbon flights window seats", setOf(Scope(Space.PERSONAL), Scope(Space.PERSONAL, done)), by = done)
+        vm.brainView = true
+        idleUntil("activity mirrored") { vm.brainActivity.isNotEmpty() }
+        listOf(ThemeMode.VOID, ThemeMode.PAPER, ThemeMode.NETRUNNER).forEach { mode ->
+            shot("brain_${mode.id}") { Frame(mode) { MemoryScreen(vm) {} } }
+        }
+    }
+
+    /** Claude Code jobs: overview, home card, settings, and the omnibox hand-off. */
+    @Test
+    fun coding() {
+        val vm = vm()
+        vm.finishOnboarding()
+        val now = System.currentTimeMillis()
+        val bridge = vm.solis.coding
+        bridge.debugPut(com.axiom.launcher.solis.coding.CodingJob("octo/app", 12, "Add dark mode toggle", "https://github.com/octo/app/issues/12", null,
+            now - 300_000, now - 60_000, com.axiom.launcher.solis.coding.JobState.WORKING, "3/5 · Add tests for the toggle", stepsDone = 3, stepsTotal = 5))
+        bridge.debugPut(com.axiom.launcher.solis.coding.CodingJob("octo/app", 9, "Fix crash when opening settings", "https://github.com/octo/app/issues/9", null,
+            now - 3_600_000, now - 120_000, com.axiom.launcher.solis.coding.JobState.PR_OPEN, "PR #10 · +42 −7 in 3 files · all 4 checks passed",
+            branch = "claude/issue-9-20261026-0912", pr = 10, prUrl = "https://github.com/octo/app/pull/10", checks = "all 4 checks passed", mergeRequested = true))
+        bridge.debugPut(com.axiom.launcher.solis.coding.CodingJob("octo/site", 4, "Update the pricing page copy", "https://github.com/octo/site/issues/4", null,
+            now - 7_200_000, now - 7_000_000, com.axiom.launcher.solis.coding.JobState.MERGED, "PR #5 merged", pr = 5, watching = false))
+        idleUntil("jobs mirrored") { vm.codingJobs.size == 3 }
+        shot("tasks_coding_void") { Frame(ThemeMode.VOID) { TasksScreen(vm, {}, {}) } }
+        shot("home_coding_paper") { Frame(ThemeMode.PAPER) { HomePage(vm, {}, {}, {}, {}, {}, {}) } }
+        vm.settingsSection = "coding"
+        shot("settings_coding_void") { Frame(ThemeMode.VOID) { SettingsScreen(vm) {} } }
+        vm.query = "code: fix the login crash on Android 15"
+        idleUntil("code hit") { vm.results.firstOrNull() is com.axiom.launcher.Hit.Code }
+        shot("search_code_netrunner") { Frame(ThemeMode.NETRUNNER) { SearchOverlay(vm, {}, {}) } }
+    }
+
     @Test
     fun icon() = listOf(ThemeMode.VOID, ThemeMode.PAPER).forEach { mode ->
         shot("icon_${mode.id}") {

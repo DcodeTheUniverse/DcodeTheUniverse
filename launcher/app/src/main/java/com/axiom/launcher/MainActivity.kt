@@ -70,13 +70,34 @@ class MainActivity : ComponentActivity() {
         when (intent?.action) {
             Intent.ACTION_ASSIST, ACTION_OPEN_SOLIS -> {
                 vm.pageRequest = PAGE_SOLIS
+                if (intent.getBooleanExtra(EXTRA_VOICE, false)) vm.voiceRequest++
+                vm.receiveShared(intent.getStringExtra(EXTRA_SHARED_TEXT), sharedFile(intent.getStringExtra(EXTRA_SHARED_FILE)))
+                return true
+            }
+            ACTION_OPEN_TASKS -> {
+                vm.overlayRequest = Overlay.TASKS
                 return true
             }
         }
         return false
     }
 
+    /**
+     * This activity is exported, so any app can send it these extras. Only files that ShareActivity copied
+     * into the share cache are accepted; anything else (for example a path to Axiom's private data) is ignored.
+     */
+    private fun sharedFile(path: String?): String? {
+        if (path.isNullOrBlank()) return null
+        val dir = java.io.File(cacheDir, "shared").canonicalFile
+        val f = runCatching { java.io.File(path).canonicalFile }.getOrNull() ?: return null
+        return f.path.takeIf { f.parentFile == dir && f.isFile }
+    }
+
     companion object {
         const val ACTION_OPEN_SOLIS = "com.axiom.launcher.OPEN_SOLIS"
+        const val ACTION_OPEN_TASKS = "com.axiom.launcher.OPEN_TASKS"
+        const val EXTRA_VOICE = "voice"
+        const val EXTRA_SHARED_TEXT = "shared_text"
+        const val EXTRA_SHARED_FILE = "shared_file"
     }
 }

@@ -157,6 +157,8 @@ class MemoryService(private val store: MemoryPersistence, private val clock: () 
     private val index = MemoryIndex()
     @Volatile var revision = 0; private set
     private val listeners = mutableListOf<() -> Unit>()
+    /** Receives recalls, writes and deletions as they happen (for the brain view); must return quickly. */
+    @Volatile var onActivity: ((MemoryActivity) -> Unit)? = null
 
     fun load() = synchronized(this) {
         items.clear()
@@ -179,7 +181,7 @@ class MemoryService(private val store: MemoryPersistence, private val clock: () 
      * Retrieves only task-relevant items from [scopes]. Ranking = BM25 relevance, boosted for pinned and
      * thread-local items, decayed by age and weighted by confidence.
      */
-    fun search(query: String, scopes: Set<Scope>, limit: Int = 8, minScore: Double = 0.05): List<Recall> = synchronized(this) {
+    fun search(query: String, scopes: Set<Scope>, limit: Int = 8, minScore: Double = 0.05, by: String? = null): List<Recall> = synchronized(this) {
         val now = clock()
         val raw = index.score(query)
         val hits = raw.mapNotNull { (id, s) ->
@@ -190,7 +192,20 @@ class MemoryService(private val store: MemoryPersistence, private val clock: () 
         // Pinned items in scope are always available as context, even with no lexical match.
         val pinned = items.values.filter { it.pinned && it.scope in scopes && hits.none { h -> h.item.id == it.id } }
             .take((limit - hits.size).coerceAtLeast(0)).map { Recall(it, 0.0) }
-        hits + pinned
+        val out = hits + pinned
+        if (by != null && out.isNotEmpty()) onActivity?.invoke(MemoryActivity(MemoryActivity.Kind.RECALL, out.map { it.item.id }, by, now))
+        out
+    }
+
+    /**
+     * The [k] memories most similar to [item] by shared distinctive terms, with similarity relative to
+     * the item's own score (0..1]. Used to draw links in the brain view.
+     */
+    fun related(item: MemoryItem, k: Int = 2, minRatio: Double = 0.3): List<Pair<String, Double>> = synchronized(this) {
+        val scores = index.score(item.text)
+        val self = scores[item.id]?.takeIf { it > 0 } ?: return emptyList()
+        scores.entries.asSequence().filter { it.key != item.id && it.value >= self * minRatio }
+            .sortedByDescending { it.value }.take(k).map { it.key to (it.value / self).coerceAtMost(1.0) }.toList()
     }
 
     private fun weight(it: MemoryItem, now: Long): Double {
@@ -256,6 +271,7 @@ class MemoryService(private val store: MemoryPersistence, private val clock: () 
         index.remove(id)
         store.deleteMemory(id)
         changed()
+        onActivity?.invoke(MemoryActivity(MemoryActivity.Kind.FORGET, listOf(id), null, clock()))
         true
     }
 
@@ -270,6 +286,7 @@ class MemoryService(private val store: MemoryPersistence, private val clock: () 
         store.upsertMemory(item)
         if (items.size > MAX_ITEMS) prune()
         changed()
+        onActivity?.invoke(MemoryActivity(MemoryActivity.Kind.WRITE, listOf(item.id), item.source.takeIf { it.startsWith("solis:") }?.removePrefix("solis:"), item.updatedAt))
     }
 
     /** Keeps memory bounded: drop the oldest unpinned short-term items first, then oldest notes. */

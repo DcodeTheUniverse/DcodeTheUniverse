@@ -35,7 +35,7 @@ import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Key
-import androidx.compose.material.icons.outlined.Memory
+import androidx.compose.material.icons.outlined.Hub
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
@@ -96,14 +96,14 @@ fun SolisPage(vm: LauncherViewModel, active: Boolean, openTasks: () -> Unit, ope
     ) {
         Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            SolisFace(vm.face, size = 52.dp)
+            SolisFace(vm.face, size = 62.dp, interactive = true, onClick = { vm.brainView = true; openMemory() })
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(if (Netrunner) "solis" else "Solis", style = lStyle(28.sp, FontWeight.Light), modifier = Modifier.semantics { heading() })
                 Text(headerLine(vm), style = lStyle(12.sp, color = p.dim), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             IconBtn(Icons.AutoMirrored.Outlined.ViewList, "Task overview", onClick = openTasks)
-            IconBtn(Icons.Outlined.Memory, "Memory inspector", onClick = openMemory)
+            IconBtn(Icons.Outlined.Hub, "Memory and brain view") { vm.brainView = true; openMemory() }
         }
         Spacer(Modifier.height(10.dp))
         ThreadStrip(vm)
@@ -380,6 +380,7 @@ private fun ThreadDetails(vm: LauncherViewModel, t: AgentThread) {
     val lines = buildList {
         add("Models: " + t.models.entries.joinToString(" · ") { (role, m) -> "${role.lowercase()} ${m.substringAfter('|')}" }.ifEmpty { "none used yet" })
         if (t.pinned.isNotEmpty()) add("Pinned for this task: " + t.pinned.entries.joinToString { "${it.key.name.lowercase()} → ${it.value.model}" })
+        if (t.usage.cachedTokens > 0) add("Prompt cache: ${t.usage.cachedTokens} of ${t.usage.inputTokens} input tokens were read from cache (billed at a fraction)")
         add("Usage: ${t.usage.calls} calls · ${t.usage.inputTokens} in / ${t.usage.outputTokens} out tokens · $" + "%.4f".format(t.usage.costUsd) +
             t.usage.byRole.entries.joinToString(prefix = " (", postfix = ")") { "${it.key.lowercase()} $" + "%.4f".format(it.value) }.takeIf { t.usage.byRole.isNotEmpty() }.orEmpty())
         add("Budget: up to $" + "%.2f".format(t.permissions.maxCostUsd) + " · privacy: " +

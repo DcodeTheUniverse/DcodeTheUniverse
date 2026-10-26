@@ -75,6 +75,7 @@ private val SECTION_TITLES = mapOf(
     "cortex" to "Cortex & routing",
     "budget" to "Budget & usage",
     "privacy" to "Privacy & tasks",
+    "coding" to "Coding with Claude Code",
     "modes" to "Modes & routines",
     "diagnostics" to "Diagnostics",
 )
@@ -103,6 +104,7 @@ fun SettingsScreen(vm: LauncherViewModel, onClose: () -> Unit) {
                 "cortex" -> CortexSettings(vm)
                 "budget" -> BudgetSettings(vm)
                 "privacy" -> PrivacySettings(vm)
+                "coding" -> CodingSettings(vm)
                 "modes" -> ModesSettings(vm)
                 "diagnostics" -> DiagnosticsSettings(vm)
                 else -> MainSettings(vm, onClose) { section = it }
@@ -149,7 +151,9 @@ private fun ColumnScope.MainSettings(vm: LauncherViewModel, onClose: () -> Unit,
     NavRow("Cortex & routing", "Decision matrix, tiers, learning, policy history, routing log") { open("cortex") }
     NavRow("Budget & usage", "Spending caps and what Solis spent") { open("budget") }
     NavRow("Privacy & tasks", "Offline mode, web, memory sharing, concurrency, auto-resume") { open("privacy") }
-    NavRow("Memory inspector", "See, correct, forget, export what Solis remembers") { onClose(); vm.overlayRequest = com.axiom.launcher.Overlay.MEMORY }
+    NavRow("Coding with Claude Code", if (vm.githubConnected) "GitHub connected · ${vm.prefs.githubRepo.ifBlank { "choose a repository" }}"
+        else "Hand coding work to Claude Code on GitHub, on your Claude subscription") { open("coding") }
+    NavRow("Memory inspector", "See, correct, forget, export what Solis remembers") { onClose(); vm.brainView = false; vm.overlayRequest = com.axiom.launcher.Overlay.MEMORY }
     NavRow("Task overview", "All Solis threads, models and usage") { onClose(); vm.overlayRequest = com.axiom.launcher.Overlay.TASKS }
     SettingSwitch("Speak replies", "Read answers aloud when you asked by voice or here", vm.speakReplies) { vm.updateSpeak(it) }
 

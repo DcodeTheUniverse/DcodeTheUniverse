@@ -96,6 +96,18 @@ fun MemoryScreen(vm: LauncherViewModel, onClose: () -> Unit) {
                 modifier = Modifier.weight(1f).semantics { heading() })
             IconBtn(Icons.Outlined.Close, "Close", onClick = onClose)
         }
+        Row(Modifier.padding(horizontal = 24.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Chip("List", selected = !vm.brainView) { vm.brainView = false }
+            Chip("Brain", selected = vm.brainView) { vm.brainView = true }
+        }
+        if (vm.brainView) {
+            Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
+                InputBar(query, { query = it }, "Highlight memories", onSubmit = {})
+                BrainView(vm, items, query, onOpen = { id -> open = id; vm.memoryFocus = id; vm.brainView = false },
+                    modifier = Modifier.weight(1f).padding(top = 8.dp, bottom = 12.dp))
+            }
+            return@Column
+        }
         LazyColumn(Modifier.weight(1f).padding(horizontal = 24.dp), state = listState) {
             item {
                 Text(

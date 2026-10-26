@@ -42,6 +42,9 @@ data class ModelInfo(
     val aliasOf: String? = null,
     val isLocal: Boolean = false,
     val createdAt: Long? = null,
+    /** USD per token read from / written to the prompt cache, when the catalog publishes it. */
+    val cacheReadPrice: Double? = null,
+    val cacheWritePrice: Double? = null,
 ) {
     val ref: ModelRef get() = ModelRef(provider, id)
     val isFree: Boolean get() = inputPrice == 0.0 && outputPrice == 0.0
@@ -56,6 +59,19 @@ data class ModelInfo(
         val outP = outputPrice ?: return null
         val tier = priceOverrides.filter { inputTokens >= it.minPromptTokens }.maxByOrNull { it.minPromptTokens }
         return inputTokens * (tier?.inputPerToken ?: inP) + outputTokens * (tier?.outputPerToken ?: outP)
+    }
+
+    /**
+     * Cost of a call whose [inputTokens] include [cacheRead] tokens served from the prompt cache and
+     * [cacheWrite] tokens written to it. Without published cache prices, cached tokens count as normal input.
+     */
+    fun estimateCost(inputTokens: Int, outputTokens: Int, cacheRead: Int, cacheWrite: Int): Double? {
+        if (cacheRead <= 0 && cacheWrite <= 0) return estimateCost(inputTokens, outputTokens)
+        val base = estimateCost(inputTokens, outputTokens) ?: return null
+        val inP = inputPrice ?: return base
+        val read = cacheRead.coerceIn(0, inputTokens)
+        val write = cacheWrite.coerceIn(0, inputTokens - read)
+        return base - read * inP + read * (cacheReadPrice ?: inP) - write * inP + write * (cacheWritePrice ?: inP)
     }
 
     fun supportsImages() = "image" in inputModalities
@@ -145,6 +161,8 @@ object CatalogParsers {
             aliasOf = alias,
             isLocal = false,
             createdAt = m.optLong("created", 0).takeIf { it > 0 }?.times(1000),
+            cacheReadPrice = price(pricing.opt("input_cache_read"))?.takeIf { it >= 0 && !variable },
+            cacheWritePrice = price(pricing.opt("input_cache_write"))?.takeIf { it >= 0 && !variable },
         )
     }
 
@@ -204,6 +222,7 @@ object CatalogParsers {
                 m.aliasOf?.let { put("al", it) }
                 put("loc", m.isLocal)
                 m.createdAt?.let { put("c", it) }
+                m.cacheReadPrice?.let { put("cr", it) }; m.cacheWritePrice?.let { put("cw", it) }
             })
         }
         return JSONObject().put("provider", s.provider).put("fetchedAt", s.fetchedAt).put("models", arr).toString()
@@ -235,6 +254,8 @@ object CatalogParsers {
                 aliasOf = m.optString("al").ifBlank { null },
                 isLocal = m.optBoolean("loc"),
                 createdAt = if (m.has("c")) m.getLong("c") else null,
+                cacheReadPrice = if (m.has("cr")) m.getDouble("cr") else null,
+                cacheWritePrice = if (m.has("cw")) m.getDouble("cw") else null,
             )
         }
         return CatalogSnapshot(provider, o.getLong("fetchedAt"), models)

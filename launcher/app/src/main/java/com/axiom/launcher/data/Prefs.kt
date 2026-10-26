@@ -55,6 +55,11 @@ class Prefs(context: Context) {
     var personalReadsWork: Boolean get() = bool("share_p_w", false); set(v) = putBool("share_p_w", v)
     var autoResume: Boolean get() = bool("auto_resume", false); set(v) = putBool("auto_resume", v)
 
+    // ---- coding bridge (the GitHub token is in SecretStore) ----
+    var githubRepo: String get() = str("gh_repo", ""); set(v) = putStr("gh_repo", v.trim())
+    var githubLogin: String get() = str("gh_login", ""); set(v) = putStr("gh_login", v)
+    var codingNotify: Boolean get() = bool("gh_notify", true); set(v) = putBool("gh_notify", v)
+
     // ---- modes & routines ----
     var modesJson: String? get() = sp.getString("modes", null); set(v) = putStr("modes", v)
     var routinesJson: String? get() = sp.getString("routines", null); set(v) = putStr("routines", v)

@@ -362,6 +362,12 @@ fun BudgetSettings(vm: LauncherViewModel) {
         style = lStyle(12.sp, color = p.dim))
     if (summary.byModeToday.isNotEmpty()) Text("By mode today: " + summary.byModeToday.entries.joinToString { "${it.key} ${usd(it.value)}" },
         style = lStyle(12.sp, color = p.dim))
+    val (cached, input) = remember(vm.threads) { vm.threads.sumOf { it.usage.cachedTokens } to vm.threads.sumOf { it.usage.inputTokens } }
+    Text(
+        if (cached > 0) "Prompt caching: ${cached * 100 / input.coerceAtLeast(1)}% of input tokens in your current tasks came from cache."
+        else "Prompt caching: Solis marks the stable part of each task (instructions, tools, the request) for Claude models, so tool loops and back-to-back tasks re-read it at a fraction of the price.",
+        style = lStyle(12.sp, color = p.dim), modifier = Modifier.padding(top = 4.dp),
+    )
 
     SectionLabel("Caps")
     fun step(v: Float, up: Boolean) = if (up) (v * 2).coerceAtMost(500f) else (v / 2).coerceAtLeast(0.01f)

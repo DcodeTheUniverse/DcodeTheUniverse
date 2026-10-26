@@ -9,10 +9,25 @@ digital rain, scanlines, glitching clock, boot sequence).
 
 ## Solis
 
-**Face.** A dot-matrix face whose expression is derived from real engine state: ready, listening (only while
-voice capture is open), thinking, working, paused, offline and error. Each state has a distinct still frame,
-so reduced motion, battery saver and thermal pressure stop the animation without hiding the state. Screen
-readers get "Solis" plus the state.
+**Face.** A 3D dot-matrix head: each dot is a small lit sphere set into a curved surface, seen in
+perspective; lit dots stand out of it with a glow (dark themes) or a cast shadow (Paper), and the head turns
+with its state — up and aside while thinking, leaning in while listening, down when paused, tilted on an
+error. Drag it to turn it; tap it on the Solis page to open the brain view. The expression is derived from
+real engine state (ready, listening only while voice capture is open, thinking, working, paused, offline,
+error). Every state has a distinct still pose and expression, so reduced motion, battery saver and thermal
+pressure stop the animation without hiding the state; idle only wakes to blink or glance now and then.
+Dots are pre-rendered sphere sprites, so a frame is ~100 bitmap draws. Screen readers get "Solis" plus the
+state.
+
+**Brain view.** Memory as a brain seen from above: personal memory in the left hemisphere, work in the right,
+each task's notes in a labelled cluster below, Solis's core in the middle. Shapes mark the kind (fact,
+preference, decision, note, task summary), pinned memories are ringed, and links join memories that share
+distinctive terms. When Solis recalls or writes memory during a task, pulses travel from the core (or that
+task's cluster) to exactly those memories, and an activity feed says what happened; while tasks run, the core
+breathes and one satellite orbits per running task. Nothing moves unless something really happened; with
+reduced motion the touched memories are ringed instead. Pinch to zoom, tap a node to read, pin or open it,
+type to highlight. The layout is deterministic and needs no simulation (sunflower spirals per hemisphere),
+capped at the 360 most important memories.
 
 **Brain (Solis_Kai, native).**
 
@@ -38,6 +53,13 @@ readers get "Solis" plus the state.
 **Providers.** OpenRouter (first-class: model discovery with prices/capabilities/benchmarks cached with
 freshness, streaming, tool calls, reasoning, `models` fallbacks, data-collection/ZDR preferences, web
 plugin, key status), Anthropic direct, and any OpenAI-compatible local runtime (Ollama, llama.cpp, LM Studio).
+
+**Prompt caching.** Worker calls mark the stable prefix (frozen system prompt + tools) and the latest request
+as cacheable: explicit `cache_control` breakpoints for Claude models through OpenRouter, and a system breakpoint
+plus automatic caching on the Anthropic API. Tool loops and back-to-back tasks re-read that prefix at a
+fraction of the input price; one-off planner, verifier and narrator calls skip it so they never pay the
+cache-write premium. Cache reads and writes are tracked per task and in Budget, and cost estimates use the
+catalog's cache prices.
 Nothing about models is hardcoded; pick a model per role (coordinator, worker, verifier, combiner,
 background updates) or per task, or leave it on Auto. Provider formats never leave their adapter.
 
@@ -46,6 +68,26 @@ permissions, budget, model assignments and lifecycle. Concurrency limits (lowere
 metered data), bounded queues, dependencies, pause/resume/cancel, resource leases between threads, and a
 task overview with models, usage and controls. A separate cheap model writes status lines only for
 multi-step work, triggered by real events, coalesced and capped; it never starts work.
+
+## Coding with Claude Code
+
+Solis can hand coding work in your GitHub repositories to Claude Code, which runs in the repository's GitHub
+Actions on your Claude (Pro/Max) subscription via `claude-code-action` and a `CLAUDE_CODE_OAUTH_TOKEN` secret.
+
+- Ask Solis ("add a dark mode toggle to my app") and it writes a self-contained spec and files it as an issue
+  that mentions `@claude`; or type `code: fix the login crash` in the omnibox to file it directly with no model
+  call at all.
+- Axiom follows the job: Claude's progress checklist, the branch it pushes, the diff size, the pull request
+  and its checks. Polling runs only while a job is active (30–60 s while Claude works, minutes while a PR
+  waits) and stops a day after the last change. Updates land in the Solis thread that started the job, on a
+  home-screen card and in the task overview, with notifications when Claude finishes, needs you, checks fail
+  or a PR is ready.
+- Solis can check status, read the diff to review or explain it, ask Claude for follow-ups or fixes, and open
+  the pull request. It cannot merge: it can only ask, and the merge (squash, pinned to the head it just
+  checked) happens when you confirm it; drafts, conflicts and failing checks are refused.
+- Settings › Coding: a fine-grained GitHub token (Keystore-encrypted, sent only to api.github.com), the
+  default repository, a setup check (token, repository, workflow, secret) and one-tap workflow install.
+  Running `/install-github-app` in Claude Code on a computer walks through the same setup.
 
 ## Launcher
 
@@ -65,6 +107,9 @@ multi-step work, triggered by real events, coalesced and capped; it never starts
   per-routine opt-in, otherwise they wait for your OK on the home screen).
 - **Memory inspector**: search, correct, pin, move between spaces, forget, export/import JSON.
 - **Offline mode**: only local models and device actions; tasks that need the cloud wait and resume.
+- **Share → Ask Solis** from any app (text, links, images, PDFs): the launcher opens on Solis with it attached;
+  nothing is sent until you send it. A **Quick Settings tile** asks Solis by voice from anywhere. A **Morning
+  brief** routine template (off by default; asks before using AI).
 - Files page, focus blocking, gestures, voice in, spoken replies, and the Claude-app hand-off for people who
   prefer their Claude subscription.
 
@@ -102,7 +147,11 @@ verification and escalation, thread isolation, concurrency and queue limits, pau
 checkpoint recovery after simulated process death on the real SQLite store (no repeated side effects),
 budget caps, narrator coalescing, offline waits, memory space boundaries, profile and notification
 boundaries, mode-driven privacy/budget, routines and consent, T0 commands without inference, the OpenRouter
-adapter against a mock server (SSE, tool-call deltas, mid-stream errors, cancellation), UI flows (mode
-switching, palette, commands, asking Solis) and screenshots of every screen.
+adapter against a mock server (SSE, tool-call deltas, mid-stream errors, cancellation), prompt-cache
+breakpoints on the wire (OpenRouter body and the Anthropic SDK request), the coding bridge against an
+in-memory GitHub over HTTP (issue → Claude working → branch → PR → checks → user-confirmed merge, errors,
+stalls, refusals to merge drafts or failing checks, setup check and workflow install, Solis calling the tool),
+the brain layout and its events, the 3D face's poses and fit, share and Quick Settings registration, UI flows
+(mode switching, palette, commands, asking Solis) and screenshots of every screen.
 
-Requires Android 11+. Prebuilt APK: [`releases/Axiom-2.0.0.apk`](../releases/Axiom-2.0.0.apk).
+Requires Android 11+. Prebuilt APK: [`releases/Axiom-2.1.0.apk`](../releases/Axiom-2.1.0.apk).

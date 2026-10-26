@@ -12,8 +12,8 @@ android {
         applicationId = "com.axiom.launcher"
         minSdk = 30
         targetSdk = 36
-        versionCode = 2
-        versionName = "2.0.0"
+        versionCode = 3
+        versionName = "2.1.0"
     }
 
     // Release key is kept out of git. Point AXIOM_KEYSTORE at it (or drop it in keystore/);

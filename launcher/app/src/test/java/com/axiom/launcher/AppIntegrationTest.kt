@@ -1,6 +1,8 @@
 package com.axiom.launcher
 
 import android.content.ComponentName
+import android.content.Intent
+import android.service.quicksettings.TileService
 import android.os.Process
 import androidx.test.core.app.ApplicationProvider
 import com.axiom.launcher.AxiomTestKit.firstUser
@@ -47,6 +49,8 @@ import com.axiom.launcher.solis.engine.SubmitResult
 import com.axiom.launcher.solis.engine.ThreadStatus
 import com.axiom.launcher.solis.engine.TranscriptEntry
 import com.axiom.launcher.solis.llm.ChatRole
+import com.axiom.launcher.solis.llm.ContentPart
+import com.axiom.launcher.solis.memory.MemoryActivity
 import com.axiom.launcher.solis.llm.ModelRef
 import com.axiom.launcher.solis.memory.MemoryItem
 import com.axiom.launcher.solis.memory.MemoryKind
@@ -67,6 +71,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.io.File
 import java.util.Calendar
 
 /** Real Android wiring under Robolectric: SQLite store, app host, modes, routines and profile boundaries. */
@@ -279,5 +284,84 @@ class AppIntegrationTest {
         assertEquals("routine:r2", t.origin)
         assertEquals(0.03, t.permissions.maxCostUsd, 1e-9)
         assertTrue(app.solis.pendingAsks.value.isEmpty())
+    }
+
+    // ------------------------------------------------------------------ entry points, coding, brain
+
+    @Test
+    fun shareSheetAndQuickSettingsTileAreRegistered() {
+        val pm = app.packageManager
+        listOf("text/plain", "image/jpeg", "application/pdf").forEach { type ->
+            val share = pm.queryIntentActivities(Intent(Intent.ACTION_SEND).setType(type), 0)
+            assertTrue("Ask Solis is a share target for $type", share.any { it.activityInfo.name == "com.axiom.launcher.platform.ShareActivity" })
+        }
+        val tiles = pm.queryIntentServices(Intent(TileService.ACTION_QS_TILE), 0)
+        assertTrue(tiles.any { it.serviceInfo.name == "com.axiom.launcher.platform.SolisTileService" })
+    }
+
+    @Test
+    fun sharedTextAndFilesBecomeASolisDraft() {
+        val vm = LauncherViewModel(app)
+        val f = File(app.cacheDir, "list.txt").apply { writeText("milk\neggs\nbread") }
+        vm.receiveShared("What can I cook with this?", f.path)
+        idleUntil("attachment ready") { vm.pendingAttachment != null }
+        assertEquals("What can I cook with this?", vm.solisDraft)
+        assertEquals(PAGE_SOLIS, vm.pageRequest)
+        assertTrue((vm.pendingAttachment!!.parts.single() as ContentPart.Text).text.contains("eggs"))
+        assertTrue("nothing is sent until the user sends it", vm.threads.isEmpty())
+    }
+
+    @Test
+    fun codingNeedsGithubAndTheShortcutUsesNoModel() {
+        val p = app.installFakeProvider()
+        val id = (app.solis.submit("What's a good name for a grey cat?") as SubmitResult.Accepted).threadId
+        idleUntil("task done") { app.solis.engine.thread(id)?.status == ThreadStatus.DONE }
+        val t = app.solis.engine.thread(id)!!
+        assertTrue("no coding tools before GitHub is connected", t.toolNames.none { it.startsWith("code_") })
+        assertFalse(t.system.contains("code_delegate"))
+
+        val vm = LauncherViewModel(app)
+        val before = p.requests.size
+        vm.query = "code: fix the login crash"
+        // No composition runs here, so tell the snapshot system about the write ourselves.
+        androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+        idleUntil("code hit") { vm.results.firstOrNull() is Hit.Code }
+        assertEquals("fix the login crash", (vm.results.first() as Hit.Code).spec)
+        vm.execute(vm.results.first())
+        assertEquals("not connected: settings open on Coding", "coding", vm.settingsSection)
+        assertEquals(Overlay.SETTINGS, vm.overlayRequest)
+        assertEquals("the shortcut never calls a model", before, p.requests.size)
+        assertTrue(app.solis.coding.jobs.value.isEmpty())
+    }
+
+    @Test
+    fun brainActivityFollowsRealRecalls() {
+        app.solis.memory.remember("Prefers aisle seats", MemoryKind.PREFERENCE, Scope(Space.PERSONAL), "you")
+        app.solis.memory.search("aisle seats", setOf(Scope(Space.PERSONAL)), by = "t-demo")
+        val last = app.solis.brainActivity.value.last()
+        assertEquals(MemoryActivity.Kind.RECALL, last.kind)
+        assertEquals("t-demo", last.by)
+        assertTrue(app.solis.brainActivity.value.any { it.kind == MemoryActivity.Kind.WRITE })
+    }
+
+    @Test
+    fun onlyFilesFromTheShareCacheCanBeAttachedThroughAnIntent() {
+        val private = File(app.filesDir, "private.txt").apply { writeText("not for sharing") }
+        val shareDir = File(app.cacheDir, "shared").apply { mkdirs() }
+        val shared = File(shareDir, "1-recipe.txt").apply { writeText("eggs, flour") }
+        fun open(path: String) = Intent(app, MainActivity::class.java).setAction(MainActivity.ACTION_OPEN_SOLIS).putExtra(MainActivity.EXTRA_SHARED_FILE, path)
+
+        val ctrl = org.robolectric.Robolectric.buildActivity(MainActivity::class.java, open(private.path)).setup()
+        val vm = androidx.lifecycle.ViewModelProvider(ctrl.get())[LauncherViewModel::class.java]
+        AxiomTestKit.idleFor(300)
+        assertNull("a path to private data is ignored", vm.pendingAttachment)
+        ctrl.newIntent(open("${shareDir.path}/../../files/private.txt"))
+        AxiomTestKit.idleFor(300)
+        assertNull("no escaping the share folder", vm.pendingAttachment)
+
+        ctrl.newIntent(open(shared.path))
+        idleUntil("shared file attached") { vm.pendingAttachment != null }
+        assertEquals("1-recipe.txt", vm.pendingAttachment!!.name)
+        ctrl.pause().stop().destroy()
     }
 }

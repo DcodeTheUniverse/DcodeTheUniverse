@@ -141,7 +141,7 @@ fun HomePage(
                 Modifier.padding(top = 10.dp).clip(RoundedCornerShape(10.dp)).clickable { goTo(PAGE_SOLIS) }.padding(4.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                SolisFace(vm.face, size = 46.dp)
+                SolisFace(vm.face, size = 54.dp)
                 Text(vm.face.caption().lowercase(), style = lStyle(10.sp, color = p.dim), modifier = Modifier.padding(top = 4.dp))
             }
         }
@@ -151,6 +151,7 @@ fun HomePage(
 
         RoutineAsks(vm)
         TaskCards(vm, openTasks) { id -> vm.selectedThread = id; goTo(PAGE_SOLIS) }
+        homeCodingJobs(vm.codingJobs).forEach { j -> CodingCard(vm, j, openTasks) }
 
         val shownNotes = (vm.notes.filter { it.pinned } + vm.notes.filter { !it.pinned }).take(3)
         if (shownNotes.isNotEmpty()) {

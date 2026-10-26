@@ -83,13 +83,20 @@ fun TasksScreen(vm: LauncherViewModel, onClose: () -> Unit, openThread: (String)
                 }
             }
         }
-        if (groups.isEmpty()) {
+        val coding = remember(vm.codingJobs) {
+            vm.codingJobs.sortedWith(compareBy<com.axiom.launcher.solis.coding.CodingJob>({ !it.mergeRequested }, { !it.active }).thenByDescending { it.changedAt })
+        }
+        if (groups.isEmpty() && coding.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
                 Text("No tasks yet. Ask Solis anything from the search bar or the Solis page.", style = lStyle(14.sp, color = p.dim))
             }
             return@Column
         }
         LazyColumn(Modifier.weight(1f).padding(horizontal = 24.dp)) {
+            if (coding.isNotEmpty()) {
+                item(key = "h:coding") { SectionLabel("Claude Code · ${coding.count { it.active }} active") }
+                items(coding, key = { "code:" + it.id }) { j -> CodingJobRow(vm, j) }
+            }
             groups.forEach { (label, list) ->
                 item(key = "h:$label") { SectionLabel("$label · ${list.size}") }
                 items(list, key = { it.id }) { t -> TaskRow(vm, t) { openThread(t.id) } }

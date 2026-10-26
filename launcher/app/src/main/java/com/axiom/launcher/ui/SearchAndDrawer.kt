@@ -34,6 +34,7 @@ import androidx.compose.material.icons.automirrored.outlined.Message
 import androidx.compose.material.icons.outlined.Alarm
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Calculate
+import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Folder
@@ -224,6 +225,8 @@ private fun HitRow(vm: LauncherViewModel, hit: Hit, onAppMenu: (AppInfo) -> Unit
             if (vm.effectiveEngine == "brain") (if (vm.mode.aiPrivacy == com.axiom.launcher.modes.AiPrivacy.OFF) "Solis is off in ${vm.mode.name} mode" else "new task · ${vm.mode.name.lowercase()} space")
             else "opens the Claude app")
         is Hit.Web -> Triple(Icons.Outlined.Language, "Search the web: ${hit.q}", "browser")
+        is Hit.Code -> Triple(Icons.Outlined.Code, "Hand to Claude Code: ${hit.spec}",
+            if (vm.githubConnected) "new issue in ${vm.prefs.githubRepo.ifBlank { "your default repo" }} · runs on your Claude subscription" else "connect GitHub in Settings › Coding")
     }
     Row(
         Modifier
@@ -237,11 +240,11 @@ private fun HitRow(vm: LauncherViewModel, hit: Hit, onAppMenu: (AppInfo) -> Unit
             AppIcon(vm, hit.app, 26.dp)
             Spacer(Modifier.width(14.dp))
         } else if (icon != null) {
-            Icon(icon, null, tint = if (hit is Hit.Ask) p.accent else p.dim, modifier = Modifier.size(22.dp))
+            Icon(icon, null, tint = if (hit is Hit.Ask || hit is Hit.Code) p.accent else p.dim, modifier = Modifier.size(22.dp))
             Spacer(Modifier.width(14.dp))
         }
         Column(Modifier.weight(1f)) {
-            Text(title, style = lStyle(if (hit is Hit.App) 20.sp else 16.sp, color = if (hit is Hit.Ask) p.accent else p.fg),
+            Text(title, style = lStyle(if (hit is Hit.App) 20.sp else 16.sp, color = if (hit is Hit.Ask || hit is Hit.Code) p.accent else p.fg),
                 maxLines = 2, overflow = TextOverflow.Ellipsis)
             if (sub.isNotEmpty()) Text(sub, style = lStyle(12.sp, color = p.dim), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }

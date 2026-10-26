@@ -29,10 +29,16 @@ import com.axiom.launcher.modes.Routine
 import com.axiom.launcher.modes.RoutineAction
 import com.axiom.launcher.platform.AgentService
 import com.axiom.launcher.platform.FallbackBrainStore
+import com.axiom.launcher.platform.Notify
 import com.axiom.launcher.platform.PerfMonitor
 import com.axiom.launcher.platform.SecretStore
 import com.axiom.launcher.platform.SqliteBrainStore
 import com.axiom.launcher.solis.catalog.Freshness
+import com.axiom.launcher.solis.coding.CodingBridge
+import com.axiom.launcher.solis.coding.CodingJob
+import com.axiom.launcher.solis.coding.CodingTools
+import com.axiom.launcher.solis.coding.GitHubClient
+import com.axiom.launcher.solis.coding.JobState
 import com.axiom.launcher.solis.cortex.BudgetCaps
 import com.axiom.launcher.solis.cortex.BudgetLedger
 import com.axiom.launcher.solis.cortex.CallRole
@@ -49,11 +55,13 @@ import com.axiom.launcher.solis.engine.SubmitResult
 import com.axiom.launcher.solis.engine.ThreadPermissions
 import com.axiom.launcher.solis.engine.ThreadStatus
 import com.axiom.launcher.solis.engine.ToolGroup
+import com.axiom.launcher.solis.engine.ToolHost
 import com.axiom.launcher.solis.llm.AnthropicProvider
 import com.axiom.launcher.solis.llm.ContentPart
 import com.axiom.launcher.solis.llm.LlmProvider
 import com.axiom.launcher.solis.llm.ModelRef
 import com.axiom.launcher.solis.llm.OpenAiCompatProvider
+import com.axiom.launcher.solis.memory.MemoryActivity
 import com.axiom.launcher.solis.memory.MemoryKind
 import com.axiom.launcher.solis.memory.MemoryService
 import com.axiom.launcher.solis.memory.Scope
@@ -64,6 +72,7 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -124,11 +133,21 @@ class SolisHost(private val app: Application, private val core: LauncherCore) {
     val stats = StatsBook()
     val tools = PhoneTools(Host())
 
+    /** Coding bridge: Claude Code on GitHub Actions (the user's Claude subscription), followed from here. */
+    val github = GitHubClient(http, { secrets.get(SecretStore.GITHUB) }, { secrets.has(SecretStore.GITHUB) })
+    private val codingWrites = Channel<String>(Channel.CONFLATED)
+    val coding = CodingBridge(
+        scope = scope, github = github,
+        load = { store.kvGet(CODING_KEY) }, save = { codingWrites.trySend(it) },
+        defaultRepo = { prefs.githubRepo }, online = { device().online && !prefs.offlineMode },
+    )
+    private val codingTools = CodingTools(coding)
+
     @Volatile private var cachedSettings: SolisSettings? = null
 
     val engine: SolisEngine = SolisEngine(
         scope = scope, store = store, providers = registry, memory = memory, policies = policies, ledger = ledger,
-        stats = stats, toolHost = tools, settings = ::settings, device = ::device,
+        stats = stats, toolHost = ToolHost { tools.tools() + codingTools.tools() }, settings = ::settings, device = ::device,
         deterministic = DeterministicHandler { text, space -> deterministic(text, space) },
         contextLine = { DeviceInfo.contextLine(app) },
     )
@@ -145,6 +164,11 @@ class SolisHost(private val app: Application, private val core: LauncherCore) {
     val catalogRevision: StateFlow<Int> = _catalogRevision.asStateFlow()
     private val _routineLog = MutableStateFlow<List<String>>(emptyList())
     val routineLog: StateFlow<List<String>> = _routineLog.asStateFlow()
+    private val _brainActivity = MutableStateFlow<List<MemoryActivity>>(emptyList())
+    /** The latest memory recalls, writes and deletions (bounded), for the brain view's pulses. */
+    val brainActivity: StateFlow<List<MemoryActivity>> = _brainActivity.asStateFlow()
+    /** Clears the activity log (screenshots start from a known moment). */
+    internal fun debugClearBrainActivity() { _brainActivity.value = emptyList() }
     private val _pendingAsks = MutableStateFlow<List<Routine>>(emptyList())
     /** Routines that want to start AI work and wait for the user's OK (AI is never started silently). */
     val pendingAsks: StateFlow<List<Routine>> = _pendingAsks.asStateFlow()
@@ -168,11 +192,15 @@ class SolisHost(private val app: Application, private val core: LauncherCore) {
         started = true
         prefs.listen(prefsListener)
         memory.addListener { _memoryRevision.update { it + 1 } }
+        memory.onActivity = { a -> _brainActivity.update { (it + a).takeLast(24) } }
         core.onConditionsChanged = {
             engine.onConditionsChanged()
             autoRefreshCatalogs()
         }
         engine.start()
+        scope.launch(Dispatchers.IO) { for (json in codingWrites) runCatching { store.kvPut(CODING_KEY, json) } }
+        coding.onChange = { old, new -> onCodingChange(old, new) }
+        coding.start()
         val f = IntentFilter(Intent.ACTION_TIME_TICK)
         if (Build.VERSION.SDK_INT >= 33) app.registerReceiver(minuteTick, f, Context.RECEIVER_NOT_EXPORTED) else app.registerReceiver(minuteTick, f)
         scope.launch {
@@ -356,6 +384,53 @@ class SolisHost(private val app: Application, private val core: LauncherCore) {
     }
 
     fun provider(id: String): LlmProvider? = registry.get(id)
+
+    // =========================================================== coding bridge
+
+    /** Saves (or with blank, removes) the GitHub token and checks it. */
+    suspend fun setGithubToken(token: String?): String = withContext(Dispatchers.IO) {
+        secrets.put(SecretStore.GITHUB, token)
+        if (token.isNullOrBlank()) {
+            prefs.githubLogin = ""
+            return@withContext "GitHub disconnected"
+        }
+        try {
+            val login = github.me()
+            prefs.githubLogin = login
+            if (prefs.githubRepo.isBlank()) github.repos(1).firstOrNull()?.let { prefs.githubRepo = it.fullName }
+            "Connected to GitHub as @$login"
+        } catch (e: Exception) {
+            e.message ?: "GitHub check failed"
+        }
+    }
+
+    val githubConnected: Boolean get() = secrets.has(SecretStore.GITHUB)
+
+    /** A coding task straight from the omnibox: the text becomes the spec, no model involved. */
+    suspend fun codeDirect(text: String): CodingJob = withContext(Dispatchers.IO) {
+        coding.delegate(null, SolisEngine.titleFor(text), text, threadId = null)
+    }
+
+    private fun onCodingChange(old: CodingJob?, new: CodingJob) {
+        val stateChanged = old?.state != new.state
+        if (stateChanged && old != null) new.threadId?.let { engine.note(it, "Claude Code · ${new.state.label}: ${new.detail}") }
+        if (!prefs.codingNotify || old == null) return
+        val passed = new.state == JobState.PR_OPEN && new.checksDone && new.checks?.startsWith("all") == true &&
+            (!old.checksDone || old.state == JobState.CHECKS_FAILED || stateChanged)
+        val title = when {
+            new.mergeRequested && !old.mergeRequested -> "Merge ${new.repo} PR #${new.pr}?"
+            passed -> "Ready to merge: ${new.title}"
+            !stateChanged -> return
+            new.state == JobState.READY -> "Claude finished: ${new.title}"
+            new.state == JobState.REPLIED -> "Claude replied: ${new.title}"
+            new.state == JobState.CHECKS_FAILED -> "Checks failed: ${new.title}"
+            new.state == JobState.ERROR -> "Claude hit a problem: ${new.title}"
+            new.state == JobState.STALLED -> "No reply from Claude: ${new.title}"
+            new.state == JobState.MERGED -> "Merged: ${new.title}"
+            else -> return
+        }
+        Notify.coding(app, new.id, title, "${new.id} · ${new.detail}")
+    }
 
     // =========================================================== routines
 
@@ -583,6 +658,7 @@ class SolisHost(private val app: Application, private val core: LauncherCore) {
         const val ANTHROPIC = "anthropic"
         const val LOCAL = "local"
         const val FOCUS_MODE = "focus"
+        private const val CODING_KEY = "coding_jobs"
         private val ROUTING_KEYS = setOf(
             "offline", "local_url", "local_tools", "local_ctx", "cap_day", "cap_month", "cap_narrator", "cap_thread",
             "unknown_price", "max_concurrent", "pinned_models", "modes", "active_mode", "share_w_p", "share_p_w",
