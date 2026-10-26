@@ -5,26 +5,26 @@ plugins {
 }
 
 android {
-    namespace = "com.dcode.launcher"
+    namespace = "com.axiom.launcher"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.dcode.launcher"
+        applicationId = "com.axiom.launcher"
         minSdk = 30
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "2.0.0"
     }
 
-    // Release key is kept out of git. Point DCODE_KEYSTORE at it (or drop it in keystore/);
+    // Release key is kept out of git. Point AXIOM_KEYSTORE at it (or drop it in keystore/);
     // without it, release builds fall back to the debug key.
-    val releaseKeystore = (System.getenv("DCODE_KEYSTORE")?.let { file(it) } ?: rootProject.file("keystore/dcode-release.jks"))
+    val releaseKeystore = (System.getenv("AXIOM_KEYSTORE")?.let { file(it) } ?: rootProject.file("keystore/axiom-release.jks"))
     signingConfigs {
         if (releaseKeystore.exists()) create("release") {
             storeFile = releaseKeystore
-            storePassword = System.getenv("DCODE_KEYSTORE_PASSWORD") ?: "dcodelauncher"
+            storePassword = System.getenv("AXIOM_KEYSTORE_PASSWORD") ?: "dcodelauncher"
             keyAlias = "dcode"
-            keyPassword = System.getenv("DCODE_KEYSTORE_PASSWORD") ?: "dcodelauncher"
+            keyPassword = System.getenv("AXIOM_KEYSTORE_PASSWORD") ?: "dcodelauncher"
         }
     }
 
@@ -82,6 +82,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.17.0")
 
     implementation("com.anthropic:anthropic-java:3.3.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")

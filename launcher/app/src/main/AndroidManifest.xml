@@ -34,7 +34,7 @@
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
-        android:theme="@style/Theme.Dcode"
+        android:theme="@style/Theme.Axiom"
         android:requestLegacyExternalStorage="true"
         android:enableOnBackInvokedCallback="true"
         tools:targetApi="36">
@@ -78,7 +78,7 @@
         <service
             android:name=".data.NotificationWatcher"
             android:exported="true"
-            android:label="Dcode notification digest"
+            android:label="Axiom notification digest"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />

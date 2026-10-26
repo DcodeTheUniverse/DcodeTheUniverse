@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "DcodeLauncher"
+rootProject.name = "AxiomLauncher"
 include(":app")
