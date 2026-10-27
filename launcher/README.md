@@ -78,9 +78,14 @@ until you ask. Password fields, card numbers and one-time codes are skipped; app
 passes those requests to the phone's on-device recognizer (or another installed one); the self-test warns if
 that can't work.
 
-**Voice mode.** A hands-free conversation: Solis listens (on-device recognition when the phone has it),
-answers aloud in a shortened spoken version, then listens again, until you say "stop" or tap End. The face has
-a speaking expression; tap it to interrupt.
+**Voice mode.** A hands-free conversation: Solis listens, answers aloud in a shortened spoken version, then
+listens again, until you say "stop" or tap End. The face has a speaking expression; tap it to interrupt.
+Listening uses the phone's on-device recognizer when it has your language, so the audio stays on the phone.
+That recognizer only knows languages whose offline pack is installed, so when it turns yours down Axiom
+hands over to the next installed recognizer (Google's first), which may use its servers. On Android 14 and
+later it also asks for the pack in the background. Recognizers get a plain language tag (`en-GB`), not the
+regional-preference form (`en-GB-u-mu-celsius`) that they treat as an unsupported language. Other apps' voice
+input, passed through Axiom while it's the assistant, hands over the same way.
 
 **Reading links.** Solis can read public web pages you give it or find (`read_web_page`): title and main text
 only, no scripts. It reaches the public internet only: every hop, redirects included, resolves through a
@@ -297,8 +302,13 @@ imports checked in the model process, and a question answered through the whole 
 The LiteRT-LM runtime class itself was run against the real Gemma 4 E2B and E4B files with LiteRT-LM's desktop
 build (tool calls and replies after tool results, keeping the conversation loaded, thinking, JSON output,
 cancelling, images, context limits); that check needs the 2.6–3.7 GB model files, so it isn't part of CI.
+Added in 2.3.1: speech recognizer hand-over with Robolectric's recognizer stand-ins (an on-device recognizer
+without the language pack hands over to Google's and is asked for the pack, the next turn starts with the one
+that worked, the on-device one is tried again later, other errors don't hand over, the error names the
+language when no recognizer takes it, other apps' voice input through the assistant hands over without the
+app seeing the refusal) and plain language tags.
 Not covered by tests: real widgets from other apps, the assistant gesture with real AssistStructure data,
-speech recognition, the biometric prompt, live Anthropic batches, and Gemma on a phone's GPU; those need a
-phone.
+real speech recognizers, the biometric prompt, live Anthropic batches, and Gemma on a phone's GPU; those need
+a phone.
 
-Requires Android 11+. Prebuilt APK: [`releases/Axiom-2.3.0.apk`](../releases/Axiom-2.3.0.apk).
+Requires Android 11+. Prebuilt APK: [`releases/Axiom-2.3.1.apk`](../releases/Axiom-2.3.1.apk).

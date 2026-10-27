@@ -1,5 +1,6 @@
 package com.axiom.launcher.platform
 
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -13,8 +14,8 @@ import android.speech.tts.UtteranceProgressListener
 import java.util.Locale
 
 /**
- * Speech in and out for voice mode and spoken replies: one recognizer (on the phone when it can, see
- * [Recognizers]) and one text-to-speech engine. All calls and callbacks are on the main thread.
+ * Speech in and out for voice mode and spoken replies: one recognizer (on the phone when it has the language,
+ * see [Recognizers]) and one text-to-speech engine. All calls and callbacks are on the main thread.
  */
 class Voice(private val context: Context) {
     interface Listener {
@@ -27,6 +28,8 @@ class Voice(private val context: Context) {
 
     private val main = Handler(Looper.getMainLooper())
     private var recognizer: SpeechRecognizer? = null
+    /** Which recognizer [recognizer] is, so a plan that starts elsewhere replaces it. */
+    private var recognizerFor: ComponentName? = null
     private var tts: TextToSpeech? = null
     private var ttsReady = false
     private var queued: Pair<String, String>? = null
@@ -35,10 +38,20 @@ class Voice(private val context: Context) {
     /** Bumped on every listen/stop, so callbacks from a cancelled session are ignored. */
     private var session = 0
 
-    /** Starts listening; false when the phone has no usable recognizer. */
-    fun listen(l: Listener): Boolean {
-        val r = recognizer ?: Recognizers.create(context)?.also { recognizer = it } ?: return false
+    /**
+     * Starts listening; false when the phone has no usable recognizer. Walks [Recognizers.plan]: a recognizer that
+     * turns the language down (the on-device one without that language's pack, typically) hands over to the next.
+     */
+    fun listen(l: Listener): Boolean = listen(l, Recognizers.plan(context, Recognizers.languageTag(), lastResort = true))
+
+    private fun listen(l: Listener, plan: List<Recognizers.Attempt>): Boolean {
+        val attempt = plan.firstOrNull() ?: return false
+        val r = recognizer(attempt) ?: return listen(l, plan.drop(1))
         val mine = ++session
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            .apply { attempt.language?.let { putExtra(RecognizerIntent.EXTRA_LANGUAGE, it) } }
         r.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {}
             override fun onBeginningOfSpeech() {}
@@ -67,16 +80,26 @@ class Voice(private val context: Context) {
                         val next = session
                         main.postDelayed({ if (next == session && !listen(l)) l.onError("Speech recognition stopped working") }, 400)
                     }
-                    else -> l.onError(message(error))
+                    else -> {
+                        // Not this recognizer's language (yet): hand over to the next one in the plan.
+                        val language = Recognizers.isLanguageError(error)
+                        if (language) Recognizers.refused(attempt, error, r, intent)
+                        val next = session
+                        if (language && plan.size > 1) main.post { if (next == session && !listen(l, plan.drop(1))) l.onError(message(error)) }
+                        else l.onError(message(error))
+                    }
                 }
             }
         })
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            .putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
-            .putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
         return runCatching { r.startListening(intent) }.isSuccess
+    }
+
+    /** The recognizer for [attempt], reusing the current one when it's the same. */
+    private fun recognizer(attempt: Recognizers.Attempt): SpeechRecognizer? {
+        recognizer?.let { if (recognizerFor == attempt.service) return it else it.destroy() }
+        recognizer = Recognizers.create(context, attempt)
+        recognizerFor = attempt.service
+        return recognizer
     }
 
     fun stopListening() {
@@ -134,6 +157,8 @@ class Voice(private val context: Context) {
         tts = null
     }
 
+    private fun languageName() = Locale.forLanguageTag(Recognizers.languageTag()).displayName
+
     private fun first(b: Bundle?): String? = b?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.trim()
 
     private fun message(error: Int) = when (error) {
@@ -141,7 +166,8 @@ class Voice(private val context: Context) {
         SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT, SpeechRecognizer.ERROR_SERVER ->
             "Speech recognition needs a connection right now"
         SpeechRecognizer.ERROR_AUDIO -> "The microphone isn't available"
-        SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> "Speech recognition doesn't support this language yet"
+        SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED -> "No speech recognizer on this phone supports ${languageName()}"
+        SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> "Speech recognition for ${languageName()} isn't downloaded on this phone yet"
         SpeechRecognizer.ERROR_TOO_MANY_REQUESTS -> "Speech recognition is busy; try again in a moment"
         else -> "Speech recognition failed ($error)"
     }

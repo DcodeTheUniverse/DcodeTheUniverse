@@ -12,8 +12,8 @@ android {
         applicationId = "com.axiom.launcher"
         minSdk = 30
         targetSdk = 36
-        versionCode = 5
-        versionName = "2.3.0"
+        versionCode = 6
+        versionName = "2.3.1"
         // LiteRT-LM (on-device models) ships 64-bit ARM and x86_64 code; leaving out x86_64 saves 26 MB. 32-bit ARM
         // phones still install Axiom: they just can't run on-device models (the settings say so).
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }

@@ -15,12 +15,15 @@ import android.service.voice.VoiceInteractionSession
 import android.service.voice.VoiceInteractionSessionService
 import android.speech.RecognitionListener
 import android.speech.RecognitionService
+import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.text.InputType
 import android.view.View
 import androidx.core.graphics.scale
 import com.axiom.launcher.MainActivity
 import java.io.File
+import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
 /** A view on the screen, reduced to what [ScreenText] needs (lets tests build screens without the framework). */
 interface ScreenNode {
@@ -158,63 +161,154 @@ class AxiomAssistSession(context: Context) : VoiceInteractionSession(context) {
 
 /**
  * While Axiom is the assistant, Android also routes other apps' speech recognition to it. This hands each
- * request to the phone's on-device recognizer, or to another installed one, and passes the results back.
+ * request to the phone's on-device recognizer, or to another installed one, and passes the results back; a
+ * recognizer that turns the language down before anything was heard hands over to the next one.
  * Android checks that the calling app may use the microphone before any of this runs.
  */
 class AxiomRecognitionService : RecognitionService() {
+    private val main = Handler(Looper.getMainLooper())
     private var delegate: SpeechRecognizer? = null
+    /** Bumped on every start and cancel, so a pending hand-over for an older request is dropped. */
+    private var request = 0
 
     override fun onStartListening(intent: Intent, callback: Callback) {
+        // Keep the caller's language, minus extensions recognizers turn down.
+        val language = intent.getStringExtra(RecognizerIntent.EXTRA_LANGUAGE)?.let(Recognizers::cleanTag)
+        val asked = Intent(intent).apply { if (language != null) putExtra(RecognizerIntent.EXTRA_LANGUAGE, language) }
+        start(asked, callback, Recognizers.plan(this, language), ++request)
+    }
+
+    private fun start(intent: Intent, callback: Callback, plan: List<Recognizers.Attempt>, mine: Int) {
         delegate?.destroy()
-        val d = Recognizers.create(this)
-        if (d == null) { runCatching { callback.error(SpeechRecognizer.ERROR_CLIENT) }; return }
+        delegate = null
+        val attempt = plan.firstOrNull()
+        val d = attempt?.let { Recognizers.create(this, it) }
+        if (d == null) {
+            if (plan.size > 1) start(intent, callback, plan.drop(1), mine) else runCatching { callback.error(SpeechRecognizer.ERROR_CLIENT) }
+            return
+        }
         delegate = d
-        d.setRecognitionListener(Forward(callback))
+        d.setRecognitionListener(Forward(callback) { error ->
+            val language = Recognizers.isLanguageError(error)
+            if (language) Recognizers.refused(attempt, error, d, intent)
+            val handOver = language && plan.size > 1
+            if (handOver) main.post { if (mine == request && delegate === d) start(intent, callback, plan.drop(1), mine) }
+            handOver
+        })
         d.startListening(intent)
     }
 
     override fun onStopListening(callback: Callback) { delegate?.stopListening() }
-    override fun onCancel(callback: Callback) { delegate?.cancel() }
+    override fun onCancel(callback: Callback) { request++; delegate?.cancel() }
 
     override fun onDestroy() {
+        request++
         delegate?.destroy()
         delegate = null
         super.onDestroy()
     }
 
-    private class Forward(private val cb: Callback) : RecognitionListener {
+    /** Passes events back to the caller; [handOver] may take an error raised before anything was heard. */
+    private class Forward(private val cb: Callback, private val handOver: (Int) -> Boolean) : RecognitionListener {
+        private var heard = false
         private fun safe(block: () -> Unit) { runCatching(block) }
         override fun onReadyForSpeech(params: Bundle?) = safe { cb.readyForSpeech(params ?: Bundle()) }
-        override fun onBeginningOfSpeech() = safe { cb.beginningOfSpeech() }
+        override fun onBeginningOfSpeech() { heard = true; safe { cb.beginningOfSpeech() } }
         override fun onRmsChanged(rmsdB: Float) = safe { cb.rmsChanged(rmsdB) }
         override fun onBufferReceived(buffer: ByteArray?) = safe { buffer?.let { cb.bufferReceived(it) } }
         override fun onEndOfSpeech() = safe { cb.endOfSpeech() }
-        override fun onError(error: Int) = safe { cb.error(error) }
+        override fun onError(error: Int) { if (heard || !handOver(error)) safe { cb.error(error) } }
         override fun onResults(results: Bundle?) = safe { cb.results(results ?: Bundle()) }
-        override fun onPartialResults(partialResults: Bundle?) = safe { cb.partialResults(partialResults ?: Bundle()) }
+        override fun onPartialResults(partialResults: Bundle?) { heard = true; safe { cb.partialResults(partialResults ?: Bundle()) } }
         override fun onEvent(eventType: Int, params: Bundle?) {}
         override fun onSegmentResults(segmentResults: Bundle) { if (Build.VERSION.SDK_INT >= 33) safe { cb.segmentResults(segmentResults) } }
         override fun onEndOfSegmentedSession() { if (Build.VERSION.SDK_INT >= 33) safe { cb.endOfSegmentedSession() } }
     }
 }
 
-/** Picks a speech recognizer that isn't Axiom's own pass-through. */
+/**
+ * Picks speech recognizers that aren't Axiom's own pass-through. The phone's on-device recognizer comes first
+ * (audio stays on the phone), but it only knows the languages whose offline pack is installed and answers
+ * anything else with a language error, so callers walk a [plan] and move on when one turns the language down.
+ */
 object Recognizers {
     private val PREFERRED = listOf("com.google.android.as", "com.google.android.tts", "com.google.android.googlequicksearchbox")
 
-    fun other(context: Context): ComponentName? {
-        val list = runCatching {
-            context.packageManager.queryIntentServices(Intent(RecognitionService.SERVICE_INTERFACE), 0)
-                .map { ComponentName(it.serviceInfo.packageName, it.serviceInfo.name) }
-                .filter { it.packageName != context.packageName }
-        }.getOrDefault(emptyList())
-        return list.sortedBy { c -> PREFERRED.indexOf(c.packageName).let { if (it < 0) PREFERRED.size else it } }.firstOrNull()
+    /** One way to listen: a recognition service ([service] null: the phone's on-device recognizer) and the language to ask for. */
+    data class Attempt(val service: ComponentName?, val language: String?) {
+        val onDevice get() = service == null
+        internal val key get() = "${service?.flattenToShortString() ?: "on-device"}|${language.orEmpty()}"
     }
 
-    /** On-device first (audio stays on the phone), else another installed recognizer; null if there is none. */
-    fun create(context: Context): SpeechRecognizer? {
-        if (Build.VERSION.SDK_INT >= 31 && runCatching { SpeechRecognizer.isOnDeviceRecognitionAvailable(context) }.getOrDefault(false))
-            return runCatching { SpeechRecognizer.createOnDeviceSpeechRecognizer(context) }.getOrNull()
-        return other(context)?.let { runCatching { SpeechRecognizer.createSpeechRecognizer(context, it) }.getOrNull() }
+    /**
+     * When each attempt turned its language down. Plans skip it for [RETRY_MS], then try it again, so the on-device
+     * recognizer gets its turn back once its pack has downloaded.
+     */
+    private val refused = ConcurrentHashMap<String, Long>()
+    /** Languages the on-device recognizer was already asked to download in this run. */
+    private val fetching = ConcurrentHashMap.newKeySet<String>()
+    private const val RETRY_MS = 30 * 60_000L
+    internal var clock: () -> Long = System::currentTimeMillis
+
+    /** Installed recognition services other than Axiom's, Google's first. */
+    fun others(context: Context): List<ComponentName> = runCatching {
+        context.packageManager.queryIntentServices(Intent(RecognitionService.SERVICE_INTERFACE), 0)
+            .map { ComponentName(it.serviceInfo.packageName, it.serviceInfo.name) }
+            .filter { it.packageName != context.packageName }
+            .sortedBy { c -> PREFERRED.indexOf(c.packageName).let { if (it < 0) PREFERRED.size else it } }
+    }.getOrDefault(emptyList())
+
+    fun other(context: Context): ComponentName? = others(context).firstOrNull()
+
+    fun onDeviceAvailable(context: Context): Boolean =
+        Build.VERSION.SDK_INT >= 31 && runCatching { SpeechRecognizer.isOnDeviceRecognitionAvailable(context) }.getOrDefault(false)
+
+    /**
+     * The recognizers to try for [language], best first: on-device, then the installed ones, minus any that turned
+     * this language down lately. With [lastResort], ends with the best installed recognizer asked for no language
+     * at all, so it uses its own setting. If every one was turned down lately, tries them all again.
+     */
+    fun plan(context: Context, language: String?, lastResort: Boolean = false): List<Attempt> {
+        val services = buildList { if (onDeviceAvailable(context)) add(null); addAll(others(context)) }
+        val all = services.map { Attempt(it, language) }.toMutableList()
+        if (lastResort && language != null && services.isNotEmpty()) all += Attempt(services.firstOrNull { it != null } ?: services.first(), null)
+        val now = clock()
+        return all.filter { a -> refused[a.key]?.let { now - it >= RETRY_MS } ?: true }.ifEmpty { all }
     }
+
+    fun create(context: Context, attempt: Attempt): SpeechRecognizer? = runCatching {
+        when {
+            attempt.service != null -> SpeechRecognizer.createSpeechRecognizer(context, attempt.service)
+            Build.VERSION.SDK_INT >= 31 -> SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+            else -> null
+        }
+    }.getOrNull()
+
+    fun isLanguageError(error: Int) =
+        error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED || error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE
+
+    /**
+     * Remembers that [attempt] turned its language down. When the on-device recognizer knows the language but lacks
+     * its pack, asks it to fetch the pack, once per run: Android 14 and later download it quietly (or when on Wi-Fi),
+     * so later requests stay on the phone. Android 13 would show a dialog instead, so it isn't asked there.
+     */
+    fun refused(attempt: Attempt, error: Int, recognizer: SpeechRecognizer, intent: Intent) {
+        refused[attempt.key] = clock()
+        if (attempt.onDevice && error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE && Build.VERSION.SDK_INT >= 34 && fetching.add(attempt.language.orEmpty()))
+            runCatching { recognizer.triggerModelDownload(intent) }
+    }
+
+    /** For tests: forget refusals. */
+    internal fun reset() { refused.clear(); fetching.clear(); clock = System::currentTimeMillis }
+
+    /**
+     * The phone's language as a plain tag such as "en-GB". Regional preferences (Android 14) put extensions in the
+     * default locale ("en-GB-u-mu-celsius"), and recognizers turn those tags down as an unsupported language.
+     */
+    fun languageTag(locale: Locale = Locale.getDefault()): String = runCatching {
+        Locale.Builder().setLanguage(locale.language).setScript(locale.script).setRegion(locale.country).build().toLanguageTag()
+    }.getOrNull()?.takeIf { locale.language.isNotEmpty() } ?: "en-US"
+
+    /** [tag] without extensions or variants; tags Java can't parse (like "en_US") pass through untouched. */
+    fun cleanTag(tag: String): String = Locale.forLanguageTag(tag).let { if (it.language.isEmpty()) tag else languageTag(it) }
 }
