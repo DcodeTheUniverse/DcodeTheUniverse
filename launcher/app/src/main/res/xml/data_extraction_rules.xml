@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  API keys are never backed up (they are bound to this phone's Keystore anyway).
+  Solis memory and tasks (solis.db) move with a device-to-device transfer, but stay out of cloud
+  backups: work-space memory must not leave the phone through the personal account. Use
+  Settings › Solis › Memory › Export for a backup you control.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <include domain="sharedpref" path="axiom.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="sharedpref" path="axiom.xml" />
+        <include domain="database" path="solis.db" />
+    </device-transfer>
+</data-extraction-rules>
