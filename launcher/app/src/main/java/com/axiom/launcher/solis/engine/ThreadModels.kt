@@ -304,7 +304,23 @@ data class SolisSettings(
     val persona: String? = null,
     /** Replace emails, phone numbers, card numbers and IBANs with placeholders before cloud calls. */
     val redactPersonal: Boolean = false,
+    /** When work goes to the phone's own model even though the cloud is available. */
+    val localUse: LocalUse = LocalUse.NEEDED,
 )
+
+/** When Solis prefers the model on the phone over cloud models. */
+enum class LocalUse {
+    /** Only when the cloud isn't allowed or reachable (local-only modes, offline) or cloud models fail. */
+    NEEDED,
+    /** Also for quick questions (T1 work), where a phone model is good enough, free and private. */
+    QUICK,
+    /** Whenever it can do the job; the cloud only steps in when it can't (or fails). */
+    ALWAYS;
+
+    companion object {
+        fun parse(s: String?) = when (s) { "quick" -> QUICK; "always" -> ALWAYS; else -> NEEDED }
+    }
+}
 
 /** What one model call sent and to whom, for the "what was sent" view. Kept in memory only. */
 data class Receipt(
@@ -313,6 +329,8 @@ data class Receipt(
     val provider: String,
     val model: String,
     val local: Boolean,
+    /** Ran on the phone itself (not a runtime elsewhere on the network). */
+    val onDevice: Boolean = false,
     val messages: Int,
     val images: Int,
     val documents: Int,

@@ -207,8 +207,10 @@ class SolisEngine(
             if (!cur.status.acceptsFollowUp) return SubmitResult.Rejected("“${cur.title}” is still ${cur.status.label.lowercase()}")
             val turn = cur.turn + 1
             if (parts.isNotEmpty()) attachments["$threadId:$turn"] = parts
-            update(threadId) { it.copy(turn = turn, status = ThreadStatus.QUEUED, blocker = null, statusText = "Queued", tier = null, stepsDone = 0, stepsTotal = 0, narration = null) }
+            // The message goes in before the thread is queued: a scheduler that is already awake must never start
+            // the turn without its text (it would skip on-device commands and assess an empty request).
             addEntry(threadId, turn, EntryKind.USER, clean.ifEmpty { "(attachment)" })
+            update(threadId) { it.copy(turn = turn, status = ThreadStatus.QUEUED, blocker = null, statusText = "Queued", tier = null, stepsDone = 0, stepsTotal = 0, narration = null) }
             kick.trySend(Unit)
             return SubmitResult.Accepted(threadId)
         }
@@ -238,9 +240,10 @@ class SolisEngine(
         // A new thread has no stored history: start its transcript empty instead of querying the store here.
         transcripts.putIfAbsent(id, MutableStateFlow(emptyList()))
         seqs.putIfAbsent(id, AtomicLong(0))
+        // Text first, then the thread: the scheduler may already be awake and pick it up the moment it appears.
+        addEntry(id, 1, EntryKind.USER, clean.ifEmpty { "(attachment)" })
         _threads.update { listOf(t) + it }
         persist { store.upsertThread(t) }
-        addEntry(id, 1, EntryKind.USER, clean.ifEmpty { "(attachment)" })
         kick.trySend(Unit)
         return SubmitResult.Accepted(id)
     }
@@ -662,6 +665,9 @@ class SolisEngine(
         )
         val history = if (streamToUser) priorTurns(id, turn) else emptyList()
         val userMsg = stepMessage(t, turn, step, a, state, userText, single = streamToUser, feedback = feedback)
+        // Tools for a small phone model come from the user's own words (and the step's goal), not from the device line
+        // and recalled memories in the composed message, which mention alarms, battery and Wi-Fi on every request.
+        val lean = LeanTools.pick(if (streamToUser) userText else step.goal + "\n" + userText, tools)
         val messages = history + ChatMessage(ChatRole.USER, parts + ContentPart.Text(userMsg))
         val system = t.system + if (!streamToUser) "\n\nYou are one worker in a larger plan. Do only your step and report the result plainly; the coordinator writes the final answer." else ""
         val exclude = HashSet<ModelRef>()
@@ -673,7 +679,7 @@ class SolisEngine(
         while (true) {
             val tp = matrix.policy(tier)
             val decision = retryWith ?: try {
-                route(t, CallRole.WORKER, tier, needs, system, messages, tools, exclude, tp.expectedOutputTokens)
+                route(t, CallRole.WORKER, tier, needs, system, messages, tools, exclude, tp.expectedOutputTokens, leanTools = lean)
             } catch (e: NoEligibleModel) {
                 if (escalations < tp.maxEscalations && tier < Tier.T3 && exclude.isNotEmpty()) { tier = tier.up(); escalations++; continue }
                 if (exclude.isEmpty()) throw e
@@ -682,7 +688,12 @@ class SolisEngine(
             if (retryWith == null) noteRoute(id, turn, decision, if (streamToUser) null else step.goal)
             retryWith = null
             try {
-                val r = agentLoop(t, turn, step.id, decision, tier, system, messages, if (decision.model.supportsTools) tools else emptyList(), streamToUser, needsWeb = Need.WEB in step.needs)
+                val offered = when {
+                    !decision.model.supportsTools -> emptyList()
+                    decision.model.compactTools -> lean
+                    else -> tools
+                }
+                val r = agentLoop(t, turn, step.id, decision, tier, system, messages, offered, streamToUser, needsWeb = Need.WEB in step.needs)
                 update(id) { it.copy(models = it.models + (CallRole.WORKER.name to decision.model.ref.key)) }
                 return StepResult(step.id, true, r.first, decision.model.ref.key, r.second)
             } catch (e: CancellationException) {
@@ -807,20 +818,30 @@ class SolisEngine(
             tools.sumOf { it.spec.parametersSchema.length + it.description.length }) / 4 + 50
 
     private fun route(t: AgentThread, role: CallRole, tier: Tier, needs: RouteNeeds, system: String, messages: List<ChatMessage>,
-                      tools: List<SolisTool>, exclude: Set<ModelRef>, expectedOut: Int, avoidFamily: String? = null): RouteDecision {
+                      tools: List<SolisTool>, exclude: Set<ModelRef>, expectedOut: Int, avoidFamily: String? = null,
+                      leanTools: List<SolisTool>? = null): RouteDecision {
         val st = settings()
         val dev = device()
         val inTok = estimateTokens(system, messages, tools)
+        // A small phone model only gets the tools this request needs, so it needs less room than the full set.
+        val leanTok = leanTools?.let { estimateTokens(system, messages, it) } ?: inTok
         val remaining = ledger.remaining(st.caps, t.modeId, st.modeDailyCaps[t.modeId], t.id, t.permissions.maxCostUsd, role)
+        // A hot phone or a low battery keeps work in the cloud; the phone still steps in when nothing else can.
+        val preferLocal = !dev.constrained && when (st.localUse) {
+            LocalUse.NEEDED -> false
+            LocalUse.QUICK -> role == CallRole.WORKER && tier <= Tier.T1
+            LocalUse.ALWAYS -> role != CallRole.NARRATOR
+        }
         val q = RouteQuery(
-            role = role, tier = tier, needs = needs.copy(minContext = inTok + expectedOut), estInputTokens = inTok,
+            role = role, tier = tier, needs = needs.copy(minContext = inTok + expectedOut, leanMinContext = leanTok + expectedOut), estInputTokens = inTok,
             estOutputTokens = expectedOut, privacy = t.permissions.privacy, budgetRemainingUsd = remaining, exclude = exclude,
             avoidFamily = avoidFamily, excludeFamily = t.independentOf.takeIf { role != CallRole.NARRATOR },
             pinned = t.pinned[role] ?: st.pinned[role] ?: if (role == CallRole.COMBINER) st.pinned[CallRole.COORDINATOR] else null,
-            trialKey = t.id, allowUnknownPrice = st.allowUnknownPrice,
+            trialKey = t.id, allowUnknownPrice = st.allowUnknownPrice, preferLocal = preferLocal, holdBackOnDevice = !preferLocal,
         )
         return router.route(q, providers.catalog.all(), providers.usable(dev.online, st.offline), policies.snapshot(), providers.priors())
     }
+
 
     /** Streams one model call; returns text, finish and usage. Reserves and commits budget around it. */
     private suspend fun stream(
@@ -855,7 +876,8 @@ class SolisEngine(
         )
         val started = clock()
         val receipt = Receipt(
-            at = started, role = role, provider = provider.displayName, model = m.id, local = m.isLocal, messages = req.messages.size,
+            at = started, role = role, provider = provider.displayName, model = m.id, local = m.isLocal,
+            onDevice = provider.id == com.axiom.launcher.solis.ondevice.OnDeviceProvider.ID, messages = req.messages.size,
             images = req.messages.sumOf { msg -> msg.parts.count { it is ContentPart.Image } },
             documents = req.messages.sumOf { msg -> msg.parts.count { it is ContentPart.Document } },
             tools = req.tools.size, estInputTokens = inTok, redacted = red?.redaction?.counts.orEmpty(), zeroRetention = req.privacy.zeroDataRetention,
@@ -1026,6 +1048,8 @@ class SolisEngine(
         val t = thread(id) ?: return null
         return try {
             val d = route(t, CallRole.NARRATOR, Tier.T1, RouteNeeds(), NARRATOR_SYSTEM, listOf(ChatMessage.user(prompt)), emptyList(), emptySet(), 60)
+            // The phone's model is busy with the task itself; a status line isn't worth interrupting it for.
+            if (d.model.onDevice) return null
             stream(t, CallRole.NARRATOR, Tier.T1, d, NARRATOR_SYSTEM, listOf(ChatMessage.user(prompt)), emptyList(), 120, json = false,
                 streamToUser = false, webSearch = false, liveStep = null).text
         } catch (e: CancellationException) {

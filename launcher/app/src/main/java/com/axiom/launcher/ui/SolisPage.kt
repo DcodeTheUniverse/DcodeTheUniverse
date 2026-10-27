@@ -116,6 +116,7 @@ fun SolisPage(vm: LauncherViewModel, active: Boolean, openTasks: () -> Unit, ope
         if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) vm.startVoiceMode()
         else micPerm.launch(Manifest.permission.RECORD_AUDIO)
     }
+    LaunchedEffect(active) { if (active) vm.warmPhoneModel() }
     var snapPath by rememberSaveable { mutableStateOf<String?>(null) }
     val snap = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         snapPath?.let { vm.onSnapped(File(it), ok) }
@@ -368,7 +369,8 @@ fun ProviderSetupCard(vm: LauncherViewModel) {
     Column(Modifier.fillMaxWidth().clip(shape).background(p.surface).border(1.dp, p.faint, shape).padding(16.dp)) {
         Text("Connect Solis to a model", style = lStyle(16.sp, FontWeight.Medium))
         Text(
-            "Paste an OpenRouter key to use hundreds of models with automatic routing. Keys are encrypted on this phone and never backed up.",
+            "Paste an OpenRouter key to use hundreds of models with automatic routing. Keys are encrypted on this phone and never backed up. " +
+                "Or run Gemma 4 on the phone itself: no account, no cost, works offline.",
             style = lStyle(13.sp, color = p.dim), modifier = Modifier.padding(vertical = 6.dp),
         )
         SecretField(key, { key = it }, "sk-or-…")
@@ -376,6 +378,7 @@ fun ProviderSetupCard(vm: LauncherViewModel) {
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (key.isNotBlank()) Chip("Save key", selected = true) { vm.saveKey(SolisHost.OPENROUTER, key); key = "" }
             Chip("Get a key", icon = Icons.AutoMirrored.Outlined.OpenInNew) { vm.actions.openUrl("https://openrouter.ai/keys") }
+            Chip("On this phone…") { vm.settingsSection = "ondevice"; vm.overlayRequest = com.axiom.launcher.Overlay.SETTINGS }
             Chip("Local runtime…") { vm.settingsSection = "providers"; vm.overlayRequest = com.axiom.launcher.Overlay.SETTINGS }
             Chip("Use Claude app") { vm.updateEngine("app") }
         }

@@ -34,3 +34,11 @@
 -dontwarn java.lang.reflect.AnnotatedParameterizedType
 -dontwarn com.github.victools.**
 -dontwarn io.opentelemetry.**
+
+# LiteRT-LM (on-device models): native code calls back into these classes by name (JNI), and tool
+# declarations are read reflectively. Keep the whole API.
+-keep class com.google.ai.edge.litertlm.** { *; }
+-keepclassmembers class com.google.ai.edge.litertlm.** { native <methods>; }
+-dontwarn com.google.ai.edge.litertlm.**
+# LiteRT-LM passes messages to its native side as Gson JSON; keep Gson whole so nothing it needs is renamed.
+-keep class com.google.gson.** { *; }

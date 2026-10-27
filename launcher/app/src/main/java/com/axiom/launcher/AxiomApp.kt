@@ -16,8 +16,15 @@ class AxiomApp : Application() {
     override fun onCreate() {
         super.onCreate()
         CrashLog.install(this)
+        // The on-device model runs in its own process (":llm"); it needs none of the launcher.
+        if (getProcessName().endsWith(":llm")) return
         PerfMonitor.markProcessStart()
         core.start()
         solis.start()
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (!getProcessName().endsWith(":llm")) solis.onDevice.client.onTrimMemory(level)
     }
 }

@@ -149,6 +149,8 @@ class Rig(
     models: List<ModelInfo> = Models.all,
     /** More tools next to the phone tools (for example the coding tools). */
     extra: ToolHost? = null,
+    /** The "[device] …" line each step message starts with. */
+    contextLine: String = "now: test",
 ) {
     val errors: MutableList<Throwable> = Collections.synchronizedList(ArrayList())
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default + kotlinx.coroutines.CoroutineExceptionHandler { _, e -> errors += e; e.printStackTrace() })
@@ -163,7 +165,7 @@ class Rig(
             scope = scope, store = store, providers = registry, memory = memory, policies = PolicyBook(store),
             ledger = BudgetLedger(store), stats = StatsBook(), toolHost = ToolHost { tools.tools() + (extra?.tools() ?: emptyList()) },
             settings = { settings }, device = { device },
-            deterministic = deterministic, contextLine = { "now: test" },
+            deterministic = deterministic, contextLine = { contextLine },
         )
     }
 

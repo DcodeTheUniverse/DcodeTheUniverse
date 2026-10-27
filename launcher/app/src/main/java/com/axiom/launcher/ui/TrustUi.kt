@@ -87,11 +87,12 @@ private fun ReceiptRow(r: Receipt) {
     val tokens = if (r.inputTokens != null) "${r.inputTokens} in / ${r.outputTokens ?: 0} out tokens" + (if (r.cachedTokens > 0) " (${r.cachedTokens} cached)" else "")
         else "~${r.estInputTokens} tokens in"
     Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-        Text("$time · ${r.role.name.lowercase()} → ${r.provider}" + if (r.local) " (on your network)" else "", style = lStyle(13.sp, FontWeight.Medium))
+        Text("$time · ${r.role.name.lowercase()} → ${r.provider}" + if (r.onDevice) "" else if (r.local) " (on your network)" else "", style = lStyle(13.sp, FontWeight.Medium))
         Text(r.model, style = lStyle(12.sp, color = p.dim).copy(fontFamily = FontFamily.Monospace))
         Text("$carried · $tokens" + (r.costUsd?.let { " · ${usd(it)}" } ?: "") + if (!r.ok) " · failed" else "", style = lStyle(12.sp, color = p.dim))
         val hidden = r.redacted.entries.joinToString { "${it.value} ${it.key}${if (it.value == 1) "" else "s"}" }
         when {
+            r.onDevice -> Text("Nothing left the phone", style = lStyle(12.sp, color = p.accent))
             r.local -> Unit
             hidden.isNotEmpty() -> Text("Hidden: $hidden" + if (r.images + r.documents > 0) " (images and files went as they are)" else "", style = lStyle(12.sp, color = p.accent))
             r.zeroRetention -> Text("Zero-retention endpoint", style = lStyle(12.sp, color = p.dim))

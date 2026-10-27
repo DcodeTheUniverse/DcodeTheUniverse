@@ -41,6 +41,7 @@ import androidx.compose.material.icons.outlined.Work
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -73,6 +74,7 @@ import com.axiom.launcher.ui.theme.paletteFor
 
 private val SECTION_TITLES = mapOf(
     "providers" to "Providers & models",
+    "ondevice" to "On-device AI",
     "cortex" to "Cortex & routing",
     "budget" to "Budget & usage",
     "privacy" to "Privacy & tasks",
@@ -102,6 +104,7 @@ fun SettingsScreen(vm: LauncherViewModel, onClose: () -> Unit) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 24.dp)) {
             when (section) {
                 "providers" -> ProvidersSettings(vm)
+                "ondevice" -> OnDeviceSettings(vm)
                 "cortex" -> CortexSettings(vm)
                 "budget" -> BudgetSettings(vm)
                 "privacy" -> PrivacySettings(vm)
@@ -150,6 +153,9 @@ private fun ColumnScope.MainSettings(vm: LauncherViewModel, onClose: () -> Unit,
         Chip("Claude app", vm.engineMode == "app") { vm.updateEngine("app") }
     }
     NavRow("Providers & models", if (vm.providersConfigured) "OpenRouter, Anthropic, local runtime · models per role" else "Not connected yet") { open("providers") }
+    val phoneModels by vm.onDevice.installed.collectAsState()
+    NavRow("On-device AI", phoneModels.firstOrNull { it.id == vm.prefs.onDeviceModel }?.let { "${it.name} on this phone" + if (!vm.onDeviceOn) " · off" else "" }
+        ?: phoneModels.firstOrNull()?.let { "${it.name} on this phone" } ?: "Run Gemma 4 on the phone: private, offline, free") { open("ondevice") }
     NavRow("Cortex & routing", "Decision matrix, tiers, learning, policy history, routing log") { open("cortex") }
     NavRow("Budget & usage", "Spending caps and what Solis spent") { open("budget") }
     NavRow("Privacy & tasks", "Offline mode, web, hiding personal details, lock, memory sharing, concurrency") { open("privacy") }

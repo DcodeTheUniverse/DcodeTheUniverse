@@ -45,6 +45,12 @@ data class ModelInfo(
     /** USD per token read from / written to the prompt cache, when the catalog publishes it. */
     val cacheReadPrice: Double? = null,
     val cacheWritePrice: Double? = null,
+    /** Routing prior (0..1) from the provider itself, for models no benchmark covers (the phone's own model). */
+    val priorQuality: Double? = null,
+    /** A small-context model that gets only the tools a request needs (see LeanTools). */
+    val compactTools: Boolean = false,
+    /** Runs on the phone itself (not a runtime elsewhere on the network). */
+    val onDevice: Boolean = false,
 ) {
     val ref: ModelRef get() = ModelRef(provider, id)
     val isFree: Boolean get() = inputPrice == 0.0 && outputPrice == 0.0
@@ -223,6 +229,9 @@ object CatalogParsers {
                 put("loc", m.isLocal)
                 m.createdAt?.let { put("c", it) }
                 m.cacheReadPrice?.let { put("cr", it) }; m.cacheWritePrice?.let { put("cw", it) }
+                m.priorQuality?.let { put("pq", it) }
+                if (m.compactTools) put("ct", true)
+                if (m.onDevice) put("od", true)
             })
         }
         return JSONObject().put("provider", s.provider).put("fetchedAt", s.fetchedAt).put("models", arr).toString()
@@ -256,6 +265,9 @@ object CatalogParsers {
                 createdAt = if (m.has("c")) m.getLong("c") else null,
                 cacheReadPrice = if (m.has("cr")) m.getDouble("cr") else null,
                 cacheWritePrice = if (m.has("cw")) m.getDouble("cw") else null,
+                priorQuality = if (m.has("pq")) m.getDouble("pq") else null,
+                compactTools = m.optBoolean("ct"),
+                onDevice = m.optBoolean("od"),
             )
         }
         return CatalogSnapshot(provider, o.getLong("fetchedAt"), models)

@@ -78,7 +78,7 @@ class QualityPriors(models: List<ModelInfo>) {
         priced.forEachIndexed { i, m -> prior[m.ref.key] = 0.15 + 0.7 * (if (priced.size == 1) 0.5 else i.toDouble() / (priced.size - 1)) }
     }
 
-    fun of(m: ModelInfo): Double = prior[m.ref.key] ?: when {
+    fun of(m: ModelInfo): Double = prior[m.ref.key] ?: m.priorQuality ?: when {
         m.isLocal -> 0.35
         m.isFree -> 0.3
         else -> 0.4
@@ -87,6 +87,7 @@ class QualityPriors(models: List<ModelInfo>) {
     fun source(m: ModelInfo): String = when {
         m.qualityIndex != null -> "benchmark"
         prior.containsKey(m.ref.key) -> "price proxy"
+        m.priorQuality != null -> "on-device estimate"
         else -> "default"
     }
 }
@@ -96,6 +97,8 @@ data class RouteNeeds(
     val vision: Boolean = false,
     val documents: Boolean = false,
     val minContext: Int = 0,
+    /** Context needed by a model that only gets the request's relevant tools ([ModelInfo.compactTools]); 0 = same as [minContext]. */
+    val leanMinContext: Int = 0,
 )
 
 /** Hard privacy limits. Never relaxed by learning or user overrides. */
@@ -124,6 +127,10 @@ data class RouteQuery(
     val allowUnknownPrice: Boolean = false,
     /** Use a model from any other vendor family when one is eligible (second opinions); else fall back with a note. */
     val excludeFamily: String? = null,
+    /** The user wants this call on the phone's own model when one is eligible (quality floor aside); cloud stays the fallback. */
+    val preferLocal: Boolean = false,
+    /** Use the phone's own model only when no other model is eligible (the user keeps it for when it's needed). */
+    val holdBackOnDevice: Boolean = false,
 )
 
 data class RouteDecision(
@@ -177,7 +184,7 @@ class Router(
             q.needs.tools && !m.supportsTools -> reject("no tool calling")
             q.needs.vision && !m.supportsImages() -> reject("no image input")
             q.needs.documents && !m.supportsFiles() && !m.supportsImages() -> reject("no document input")
-            q.needs.minContext > m.contextLength -> reject("context too small")
+            (if (m.compactTools && q.needs.leanMinContext > 0) q.needs.leanMinContext else q.needs.minContext) > m.contextLength -> reject("context too small")
             !q.privacy.cloudAllowed && !m.isLocal -> reject("cloud not allowed")
             m.ref in q.exclude -> reject("failed earlier")
             else -> {
@@ -218,7 +225,16 @@ class Router(
             if (others.isNotEmpty()) { eligible = others; explanation += "independent of $fam: a model from another maker" }
             else explanation += "no eligible model outside $fam, so this one isn't independent"
         }
-        val floor = if (q.role == CallRole.NARRATOR) 0.0 else tierPolicy.minQuality
+        var localChoice = false
+        if (q.preferLocal) {
+            val locals = eligible.filter { it.isLocal }
+            if (locals.isNotEmpty()) { eligible = locals; localChoice = true; explanation += "on this phone, as you asked (cloud only as a fallback)" }
+        } else if (q.holdBackOnDevice) {
+            val others = eligible.filter { !it.onDevice }
+            if (others.isNotEmpty() && others.size < eligible.size) eligible = others
+            else if (others.isEmpty()) explanation += "on this phone: no other model can take this now"
+        }
+        val floor = if (q.role == CallRole.NARRATOR || localChoice) 0.0 else tierPolicy.minQuality
         var pool = eligible.filter { quality(it, q.tier, priors) >= floor }
         if (pool.isEmpty()) {
             pool = eligible

@@ -624,6 +624,82 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
     fun checkBatches() { viewModelScope.launch { say("Checking batches…"); runCatching { solis.pollBatches() }; say("Batches checked") } }
     fun updateBatchBest(v: Boolean) { batchBest = v; prefs.batchBest = v }
 
+    // ================= on-device model =================
+
+    val onDevice: com.axiom.launcher.platform.OnDeviceManager get() = solis.onDevice
+    var onDeviceOn by mutableStateOf(prefs.onDeviceOn); private set
+    var onDeviceBackend by mutableStateOf(prefs.onDeviceBackend); private set
+    var onDeviceContext by mutableStateOf(prefs.onDeviceContext); private set
+    var onDeviceUse by mutableStateOf(prefs.onDeviceUse); private set
+    var onDeviceThink by mutableStateOf(prefs.onDeviceThink); private set
+    var onDeviceKeepMin by mutableStateOf(prefs.onDeviceKeepMin); private set
+    var onDeviceWifiOnly by mutableStateOf(prefs.onDeviceWifiOnly); private set
+    var speedTesting by mutableStateOf(false); private set
+    var speedResult by mutableStateOf<String?>(null); private set
+
+    fun updateOnDeviceOn(v: Boolean) { onDeviceOn = v; prefs.onDeviceOn = v; if (!v) onDevice.client.unload() }
+    fun updateOnDeviceUse(v: String) { onDeviceUse = v; prefs.onDeviceUse = v }
+    fun updateOnDeviceThink(v: Boolean) { onDeviceThink = v; prefs.onDeviceThink = v }
+    fun updateOnDeviceKeep(v: Int) { onDeviceKeepMin = v; prefs.onDeviceKeepMin = v }
+    fun updateOnDeviceWifi(v: Boolean) { onDeviceWifiOnly = v; prefs.onDeviceWifiOnly = v }
+
+    /** Backend and context take effect on the next load, so the loaded model is let go now. */
+    fun updateOnDeviceBackend(v: String) { onDeviceBackend = v; prefs.onDeviceBackend = v; onDevice.client.unload(); speedResult = null }
+    fun updateOnDeviceContext(v: Int) { onDeviceContext = v; prefs.onDeviceContext = v; onDevice.client.unload() }
+
+    fun useOnDeviceModel(id: String) { onDevice.setActive(id); speedResult = null; say("Solis will use ${onDevice.installed.value.firstOrNull { it.id == id }?.name ?: "that model"} on this phone") }
+
+    fun downloadModel(m: com.axiom.launcher.solis.ondevice.OnDeviceModel, wifiOnly: Boolean = onDeviceWifiOnly) {
+        val spec = onDevice.deviceSpec()
+        when (com.axiom.launcher.solis.ondevice.OnDeviceCatalog.fit(m, spec)) {
+            com.axiom.launcher.solis.ondevice.Fit.UNSUPPORTED -> say("On-device models need a 64-bit ARM phone")
+            com.axiom.launcher.solis.ondevice.Fit.NO_STORAGE -> say("${m.name} needs ${com.axiom.launcher.solis.ondevice.OnDeviceCatalog.size(m.sizeBytes + com.axiom.launcher.solis.ondevice.OnDeviceCatalog.STORAGE_MARGIN)} free; " +
+                "${com.axiom.launcher.solis.ondevice.OnDeviceCatalog.size(spec.freeStorageBytes)} is available")
+            else -> {
+                onDevice.download(m, wifiOnly)
+                say(if (wifiOnly) "Downloading ${m.name} over Wi-Fi; you can leave this screen" else "Downloading ${m.name}; you can leave this screen")
+            }
+        }
+    }
+
+    fun cancelModelDownload() { onDevice.cancelDownload(); say("Download stopped; it can pick up where it left off") }
+
+    fun deleteModel(id: String) {
+        val name = onDevice.installed.value.firstOrNull { it.id == id }?.name ?: "Model"
+        onDevice.delete(id)
+        speedResult = null
+        say("$name deleted from the phone")
+    }
+
+    fun importModel(uri: android.net.Uri) {
+        viewModelScope.launch {
+            say("Importing the model file…")
+            runCatching { onDevice.import(uri) }
+                .onSuccess { say("${it.name} is ready on this phone") }
+                .onFailure { say(it.message ?: "Couldn't import that file") }
+        }
+    }
+
+    fun runSpeedTest() {
+        if (speedTesting) return
+        viewModelScope.launch {
+            speedTesting = true
+            speedResult = null
+            speedResult = runCatching { onDevice.speedTest() }.fold({ describeSpeed(it) }, { "Couldn't run the model: ${it.message ?: it.javaClass.simpleName}" })
+            speedTesting = false
+        }
+    }
+
+    fun retryGpu(id: String) { onDevice.clearGpuBlock(id); onDevice.client.unload(); say("The GPU will be tried again next time") }
+
+    /** Solis opened: load the phone's model now if it's likely to answer, so the first reply doesn't wait for the load. */
+    fun warmPhoneModel() {
+        val d = solis.device()
+        val likely = onDeviceUse != "needed" || !d.online || offline
+        if (!onDeviceOn || !likely || d.constrained) return
+        viewModelScope.launch { onDevice.warm() }
+    }
+
     // ================= biometric lock =================
 
     /** Solis, memory, tasks and settings need a fingerprint, face or screen-lock check right now. */
@@ -1312,6 +1388,7 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
             CheckFix.DEFAULT_HOME -> actions.chooseDefaultLauncher()
             CheckFix.ASSISTANT -> actions.assistantSettings()
             CheckFix.PROVIDERS -> { settingsSection = "providers"; overlayRequest = Overlay.SETTINGS }
+            CheckFix.ON_DEVICE -> { settingsSection = "ondevice"; overlayRequest = Overlay.SETTINGS }
             CheckFix.CODING -> { settingsSection = "coding"; overlayRequest = Overlay.SETTINGS }
             CheckFix.POST_NOTIFICATIONS -> actions.appNotificationSettings()
             CheckFix.NOTIFICATION_ACCESS -> actions.notificationAccessSettings()
@@ -1384,3 +1461,10 @@ private const val LOCK_AUTHENTICATORS = android.hardware.biometrics.BiometricMan
 
 /** Phrases that end voice mode. */
 private val VOICE_STOP = Regex("^(stop|stop listening|that'?s all|that is all|i'?m done|goodbye|bye|cancel|end voice mode|exit voice mode|thanks,? (that'?s all|bye))[.!]?$")
+
+/** "Loaded in 3.9 s · first words after 0.6 s · 15 tokens/s on the GPU" */
+fun describeSpeed(s: com.axiom.launcher.solis.ondevice.LocalStats): String = listOfNotNull(
+    s.loadMs.takeIf { it > 0 }?.let { "Loaded in " + String.format(java.util.Locale.US, "%.1f s", it / 1000.0) },
+    s.firstTokenMs.takeIf { it > 0 }?.let { "first words after " + String.format(java.util.Locale.US, "%.1f s", it / 1000.0) },
+    s.decodeTps.takeIf { it > 0 }?.let { String.format(java.util.Locale.US, "%.0f tokens/s", it) + when (s.backend) { "gpu" -> " on the GPU"; "cpu" -> " on the CPU"; else -> "" } },
+).joinToString(" · ").replaceFirstChar { it.uppercase() }

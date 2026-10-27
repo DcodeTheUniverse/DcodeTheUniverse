@@ -71,6 +71,26 @@ class Prefs(context: Context) {
     /** Ask for fingerprint, face or screen lock before showing Solis, memory, tasks or settings. */
     var biometricLock: Boolean get() = bool("bio_lock", false); set(v) = putBool("bio_lock", v)
 
+    // ---- on-device model (files live in filesDir/models; see OnDeviceManager) ----
+    var onDeviceOn: Boolean get() = bool("ondevice_on", true); set(v) = putBool("ondevice_on", v)
+    /** Id of the installed model Solis uses; empty = the first installed one. */
+    var onDeviceModel: String get() = str("ondevice_model", ""); set(v) = putStr("ondevice_model", v)
+    /** "auto" (GPU, falling back to CPU), "gpu" or "cpu". */
+    var onDeviceBackend: String get() = str("ondevice_backend", "auto"); set(v) = putStr("ondevice_backend", v)
+    var onDeviceContext: Int get() = sp.getInt("ondevice_ctx", 8192); set(v) = sp.edit().putInt("ondevice_ctx", v).apply()
+    /** When Solis uses the phone's model: "needed" (offline, local-only modes), "quick" (also quick questions) or "always". */
+    var onDeviceUse: String get() = str("ondevice_use", "quick"); set(v) = putStr("ondevice_use", v)
+    var onDeviceThink: Boolean get() = bool("ondevice_think", true); set(v) = putBool("ondevice_think", v)
+    /** Minutes the model stays loaded after the last answer. */
+    var onDeviceKeepMin: Int get() = sp.getInt("ondevice_keep", 5); set(v) = sp.edit().putInt("ondevice_keep", v).apply()
+    var onDeviceWifiOnly: Boolean get() = bool("ondevice_wifi", true); set(v) = putBool("ondevice_wifi", v)
+    /** Models whose GPU path failed on this phone (model id → build fingerprint + reason); they use the CPU. Tied to the fingerprint, so another phone or an OS update tries the GPU again. */
+    var onDeviceGpuBlocked: Map<String, String>
+        get() = JSONObject(str("ondevice_gpu_block", "{}")).let { o -> o.keys().asSequence().associateWith { o.getString(it) } }
+        set(v) = putStr("ondevice_gpu_block", JSONObject(v).toString())
+    /** Latest measured speed per model (JSON of LocalStats), shown in settings. */
+    var onDeviceStats: String get() = str("ondevice_stats", "{}"); set(v) = putStr("ondevice_stats", v)
+
     // ---- coding bridge (the GitHub token is in SecretStore) ----
     var githubRepo: String get() = str("gh_repo", ""); set(v) = putStr("gh_repo", v.trim())
     var githubLogin: String get() = str("gh_login", ""); set(v) = putStr("gh_login", v)

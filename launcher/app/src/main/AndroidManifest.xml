@@ -25,6 +25,8 @@
     <!-- Solis: keep user-started tasks running in the background, with a progress notification. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- Downloading an on-device model (a visible download with progress and Cancel). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Android 15+: lets the default launcher list Private Space apps (shown only while unlocked). -->
     <uses-permission android:name="android.permission.ACCESS_HIDDEN_PROFILES" />
@@ -52,6 +54,12 @@
         android:requestLegacyExternalStorage="true"
         android:enableOnBackInvokedCallback="true"
         tools:targetApi="36">
+
+        <!-- On-device models: LiteRT-LM's GPU path uses the phone's OpenCL driver when there is one. -->
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
+        <uses-native-library android:name="libOpenCL-pixel.so" android:required="false" />
+        <uses-native-library android:name="libOpenCL-car.so" android:required="false" />
+        <uses-native-library android:name="libvndksupport.so" android:required="false" />
 
         <activity
             android:name=".MainActivity"
@@ -167,6 +175,18 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Finishes AI assistant tasks the user started in the launcher while it is in the background, with a progress notification and a pause action." />
         </service>
+
+        <!-- The on-device model runs in its own process: its memory and any GPU-driver crash stay away from the home screen. -->
+        <service
+            android:name=".platform.LocalModelService"
+            android:exported="false"
+            android:process=":llm" />
+
+        <!-- WorkManager's foreground service, declared here so model downloads can show progress as a data-sync service. -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

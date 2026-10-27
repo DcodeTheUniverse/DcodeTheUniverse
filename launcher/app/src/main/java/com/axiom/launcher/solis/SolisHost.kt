@@ -51,6 +51,7 @@ import com.axiom.launcher.solis.engine.LivePhase
 import com.axiom.launcher.solis.engine.ProviderRegistry
 import com.axiom.launcher.solis.engine.SolisEngine
 import com.axiom.launcher.solis.engine.SolisSettings
+import com.axiom.launcher.solis.engine.LocalUse
 import com.axiom.launcher.solis.engine.SubmitResult
 import com.axiom.launcher.solis.engine.ThreadPermissions
 import com.axiom.launcher.solis.engine.ThreadStatus
@@ -135,6 +136,12 @@ class SolisHost(private val app: Application, private val core: LauncherCore) {
         LOCAL, "Local runtime", { prefs.localBaseUrl }, { secrets.get(SecretStore.LOCAL) },
         OpenAiCompatProvider.Flavor.LOCAL, http, { prefs.localTools }, { prefs.localContext },
     )
+    /** Models on the phone itself (Gemma 4 via LiteRT-LM, in its own process). */
+    val onDevice = com.axiom.launcher.platform.OnDeviceManager(app, prefs)
+    val phoneModel = com.axiom.launcher.solis.ondevice.OnDeviceProvider(
+        runtime = onDevice.client, config = onDevice::config, saveImage = onDevice.client::saveImage,
+        onStats = { id, s -> onDevice.recordStats(id, s) },
+    )
     val memory = MemoryService(store)
     val policies = PolicyBook(store)
     val ledger = BudgetLedger(store)
@@ -176,6 +183,7 @@ class SolisHost(private val app: Application, private val core: LauncherCore) {
         registry.register(openRouter)
         registry.register(anthropic)
         registry.register(local)
+        registry.register(phoneModel)
     }
 
     private val _memoryRevision = MutableStateFlow(0)
@@ -197,6 +205,16 @@ class SolisHost(private val app: Application, private val core: LauncherCore) {
     private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         cachedSettings = null
         if (key in ROUTING_KEYS) engine.onConditionsChanged()
+        if (key in ON_DEVICE_KEYS) refreshPhoneModel()
+    }
+
+    /** Re-lists the phone's model (installed, context, thinking) so routing sees changes right away. */
+    fun refreshPhoneModel() {
+        scope.launch {
+            runCatching { registry.refresh(com.axiom.launcher.solis.ondevice.OnDeviceProvider.ID) }
+            _catalogRevision.update { it + 1 }
+            engine.onConditionsChanged()
+        }
     }
     private val minuteTick = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, i: Intent?) = onMinute()
@@ -211,6 +229,8 @@ class SolisHost(private val app: Application, private val core: LauncherCore) {
         if (started) return
         started = true
         prefs.listen(prefsListener)
+        onDevice.onChanged = { refreshPhoneModel() }
+        refreshPhoneModel()
         memory.addListener { _memoryRevision.update { it + 1 } }
         memory.onActivity = { a -> _brainActivity.update { (it + a).takeLast(24) } }
         core.onConditionsChanged = {
@@ -420,6 +440,7 @@ class SolisHost(private val app: Application, private val core: LauncherCore) {
         userName = prefs.userName,
         persona = if (core.effectiveTheme() == ThemeMode.NETRUNNER) NETRUNNER_PERSONA else null,
         redactPersonal = prefs.redactPersonal,
+        localUse = LocalUse.parse(prefs.onDeviceUse),
     )
 
     fun pinnedModels(): Map<CallRole, ModelRef> = prefs.pinnedModels.mapNotNull { (k, v) ->
@@ -836,8 +857,9 @@ class SolisHost(private val app: Application, private val core: LauncherCore) {
         const val BATCH_DISCOUNT = 0.5
         private val ROUTING_KEYS = setOf(
             "offline", "local_url", "local_tools", "local_ctx", "cap_day", "cap_month", "cap_narrator", "cap_thread",
-            "unknown_price", "max_concurrent", "pinned_models", "modes", "active_mode", "share_w_p", "share_p_w",
+            "unknown_price", "max_concurrent", "pinned_models", "modes", "active_mode", "share_w_p", "share_p_w", "ondevice_use",
         )
+        private val ON_DEVICE_KEYS = setOf("ondevice_on", "ondevice_model", "ondevice_backend", "ondevice_ctx", "ondevice_think", "ondevice_gpu_block")
         const val NETRUNNER_PERSONA = "Style: the user chose the Netrunner theme. Keep a terse, playful terminal tone " +
             "(lowercase is fine, a little hacker flavor), but stay clear, accurate and kind."
     }

@@ -32,6 +32,9 @@ object SettingsBackup {
             "cap_day" to 'f', "cap_month" to 'f', "cap_narrator" to 'f', "cap_thread" to 'f', "unknown_price" to 'b',
             "max_concurrent" to 'i', "offline" to 'b', "share_w_p" to 'b', "share_p_w" to 'b', "auto_resume" to 'b',
             "gh_repo" to 's', "gh_notify" to 'b', "routines" to 's', "redact" to 'b', "batch_best" to 'b',
+            // On-device model settings (the model files themselves never travel; download them again on the new phone).
+            "ondevice_on" to 'b', "ondevice_model" to 's', "ondevice_backend" to 's', "ondevice_ctx" to 'i', "ondevice_use" to 's',
+            "ondevice_think" to 'b', "ondevice_keep" to 'i', "ondevice_wifi" to 'b',
         ).forEach { (k, t) -> put(k, t to Group.SOLIS) }
     }
 
@@ -123,6 +126,9 @@ object SettingsBackup {
             "local_url" -> require((v as String).isBlank() || v.startsWith("http://") || v.startsWith("https://"))
             "engine" -> require(v in setOf("auto", "brain", "app"))
             "reduced_motion" -> require(v in setOf("system", "on", "off"))
+            "ondevice_backend" -> require(v in setOf("auto", "gpu", "cpu"))
+            "ondevice_use" -> require(v in setOf("needed", "quick", "always"))
+            "ondevice_model" -> require((v as String).length <= 120)
         }
         true
     }.getOrDefault(false)
@@ -131,6 +137,8 @@ object SettingsBackup {
         "cap_day", "cap_month", "cap_narrator", "cap_thread" -> (v as Float).coerceIn(0f, 1000f)
         "max_concurrent" -> (v as Int).coerceIn(1, 6)
         "local_ctx" -> (v as Int).coerceIn(1024, 2_000_000)
+        "ondevice_ctx" -> (v as Int).coerceIn(2048, 32_768)
+        "ondevice_keep" -> (v as Int).coerceIn(1, 60)
         "user_name" -> (v as String).take(60)
         else -> v
     }

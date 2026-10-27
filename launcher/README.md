@@ -52,7 +52,8 @@ capped at the 360 most important memories.
 
 **Providers.** OpenRouter (first-class: model discovery with prices/capabilities/benchmarks cached with
 freshness, streaming, tool calls, reasoning, `models` fallbacks, data-collection/ZDR preferences, web
-plugin, key status), Anthropic direct, and any OpenAI-compatible local runtime (Ollama, llama.cpp, LM Studio).
+plugin, key status), Anthropic direct, any OpenAI-compatible local runtime (Ollama, llama.cpp, LM Studio),
+and a model running on the phone itself (below).
 
 **Prompt caching.** Worker calls mark the stable prefix (frozen system prompt + tools) and the latest request
 as cacheable: explicit `cache_control` breakpoints for Claude models through OpenRouter, and a system breakpoint
@@ -100,6 +101,53 @@ require zero retention or local AI refuse it; spending caps apply before sending
 
 **Second opinions.** A task can be marked independent of a model maker; the router then uses another vendor
 family whenever one is eligible (and says so when none is). Coding uses it for reviews (below).
+
+## On-device AI (Gemma 4)
+
+Solis can run **Gemma 4** on the phone itself with Google's **LiteRT-LM** runtime: nothing you ask leaves the
+phone, it works with no connection, and it costs nothing. Settings › On-device AI shows the phone ("Galaxy S24+ ·
+Snapdragon 8 Gen 3 · 12 GB RAM"), recommends the most capable model it runs well, and downloads it:
+
+| Model | Download | For | What it can do |
+|---|---|---|---|
+| **Gemma 4 E4B** | 3.7 GB | phones with 8 GB+ RAM (a Galaxy S24+ runs it) | text, images, audio input; calls Solis's tools; thinks on hard questions |
+| **Gemma 4 E2B** | 2.6 GB | phones with 6 GB+, or when speed matters most | the same, about twice as fast, a little less capable |
+
+Both are Apache-2.0 and come from Google's `litert-community` repositories, pinned to an exact revision and
+SHA-256. The download resumes where it stopped, waits for Wi-Fi unless you allow mobile data, never starts
+without room to spare, and the file is only kept once its checksum matches. You can also import a `.litertlm`
+file you already have; Axiom recognises its own models by checksum and runs others as plain chat models.
+Gemini Nano isn't used: Android's AICore offers it only on newer phones (among Samsungs, the Galaxy S25 and
+later), where Google ships Gemma 4 inside it; on an S24+ Axiom runs Gemma 4 itself.
+
+- **Its own process.** The model runs in a separate `:llm` process the launcher binds to while it needs it, so
+  its gigabytes and any GPU-driver crash stay away from the home screen. After a few quiet minutes (your choice)
+  the launcher lets go and the memory returns to the phone; real memory pressure frees it sooner.
+- **GPU first, CPU fallback.** The GPU (OpenCL) is fastest; if it fails to load the model, or the model process
+  dies while loading on the GPU, Axiom remembers that for this model and this Android build and uses the CPU.
+  An OS update, or "Try the GPU again", retries.
+- **When Solis uses it.** *When needed* (offline, modes set to local-only privacy, cloud failures), *Quick
+  questions* (the default: quick questions and phone actions run here, bigger tasks in the cloud) or
+  *Everything*. On a hot phone or a low battery the cloud is preferred. The router gives the phone model its own
+  quality estimate until it has measured it, and keeps the cloud as fallback.
+- **Made to run well on a phone.** Gemma is offered only the tools a request needs (a timer request gets the
+  clock and memory, not 50 declarations to read first). Inside a tool loop the conversation stays in the model's
+  memory, so after the first call only the new message is processed. On the GPU, Gemma 4's built-in drafter
+  (speculative decoding) is on, except for JSON answers, which it breaks; on the CPU it's off, since it didn't
+  help there. Hard questions can think step by step; quick ones never do. Background status lines never
+  interrupt the phone model.
+- **Fixed for Solis.** Solis runs tools itself (permissions, confirmations), so LiteRT-LM only sees their
+  declarations. Gemma 4's stock chat template closes the model's turn right after a tool call; the model then
+  stops without answering. Axiom ships a corrected template (`assets/ondevice/`) that keeps the call, its result
+  and the reply in one turn, and tells small models to confirm what a tool did.
+- **Receipts** say "Nothing left the phone"; the self-test checks the installed model, the GPU fallback and
+  crashes, and Settings shows the measured speed with a one-tap speed test.
+
+Measured here (desktop CPU, 4 threads, not a phone): Gemma 4 E2B decodes about 17 tokens/s and E4B about
+9 tokens/s; a follow-up in the same conversation starts answering in about 0.4 s (E2B) because the conversation
+stays loaded. Google's figures for a Galaxy S26 Ultra are 52 (E2B) and 22 (E4B) tokens/s on the GPU, up to
+about twice that with Gemma 4's speculative decoding; an S24+ is a generation older, so expect less. Settings ›
+On-device AI › Test speed measures your phone.
 
 ## Coding with Claude Code
 
@@ -176,6 +224,7 @@ API keys are encrypted with an Android Keystore key, cached only in process memo
 only to their provider. Solis's database moves with device-to-device transfer but stays out of cloud backups
 (work memory must not leave through the personal account); use Memory › Export for your own backup.
 Cleartext HTTP is allowed only so a local runtime on your LAN works, and the UI warns when it is used.
+On-device models never send anything anywhere; their files stay in Axiom's private storage and out of backups.
 
 - **Hide personal details** (Settings › Privacy, off by default): emails, phone numbers, card numbers (Luhn
   checked) and IBANs (checksum checked) are sent to cloud models as placeholders like `⟦EMAIL_1⟧` and filled
@@ -238,7 +287,18 @@ against the in-memory GitHub (failures and annotations on the PR, following Clau
 export/import (validation, clamping, the Solis-settings opt-in, merged notes), icon-pack filters, screen text
 without passwords or codes, widget placement, the lock (including re-locking on screen off), the self-test
 report leaving private content out, assistant and recognizer registration, and screenshots of the new screens.
+Added in 2.3 (on-device AI): the model catalog and phone fit (a Galaxy S24+ gets Gemma 4 E4B), turning Solis
+requests into Gemma-shaped requests and back, the provider's event and error mapping, lean tool selection,
+routing preferences (quick questions on the phone, "when needed" holding it back, cloud fallback, the narrator
+never using it), resumable downloads against a local server (resume, dropped connections, servers that ignore
+ranges, checksum mismatches, no room), and the real binder path under Robolectric: launcher client ↔ model
+service ↔ a scripted runtime, cancellation, a crash while loading on the GPU moving that model to the CPU,
+imports checked in the model process, and a question answered through the whole app with a tool round trip.
+The LiteRT-LM runtime class itself was run against the real Gemma 4 E2B and E4B files with LiteRT-LM's desktop
+build (tool calls and replies after tool results, keeping the conversation loaded, thinking, JSON output,
+cancelling, images, context limits); that check needs the 2.6–3.7 GB model files, so it isn't part of CI.
 Not covered by tests: real widgets from other apps, the assistant gesture with real AssistStructure data,
-speech recognition, the biometric prompt and live Anthropic batches; those need a phone.
+speech recognition, the biometric prompt, live Anthropic batches, and Gemma on a phone's GPU; those need a
+phone.
 
-Requires Android 11+. Prebuilt APK: [`releases/Axiom-2.2.0.apk`](../releases/Axiom-2.2.0.apk).
+Requires Android 11+. Prebuilt APK: [`releases/Axiom-2.3.0.apk`](../releases/Axiom-2.3.0.apk).

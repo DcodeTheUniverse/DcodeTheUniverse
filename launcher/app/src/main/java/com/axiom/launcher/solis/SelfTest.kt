@@ -20,7 +20,7 @@ import java.io.File
 enum class CheckStatus { OK, WARN, FAIL, INFO }
 
 /** Where a failed or optional check can be fixed. */
-enum class CheckFix { DEFAULT_HOME, ASSISTANT, PROVIDERS, CODING, POST_NOTIFICATIONS, NOTIFICATION_ACCESS, CONTACTS, CALENDAR, FILES, ACCESSIBILITY, MICROPHONE, BATTERY, SHARE_REPORT }
+enum class CheckFix { DEFAULT_HOME, ASSISTANT, PROVIDERS, ON_DEVICE, CODING, POST_NOTIFICATIONS, NOTIFICATION_ACCESS, CONTACTS, CALENDAR, FILES, ACCESSIBILITY, MICROPHONE, BATTERY, SHARE_REPORT }
 
 data class SelfCheck(val area: String, val status: CheckStatus, val text: String, val fix: CheckFix? = null)
 
@@ -76,6 +76,31 @@ class SelfTest(private val app: Application, private val core: LauncherCore, pri
                 }
             }
             host.lastError.value?.let { add("AI", CheckStatus.WARN, "Last background error: ${it.take(160)}") }
+        }
+
+        guard(out, "On this phone") {
+            val area = "On this phone"
+            val od = host.onDevice
+            val spec = od.deviceSpec()
+            val installed = od.installed.value
+            val best = com.axiom.launcher.solis.ondevice.OnDeviceCatalog.recommend(spec)
+            val a = od.active()
+            when {
+                installed.isEmpty() -> add(area, CheckStatus.INFO,
+                    best?.let { "No on-device model yet. ${it.name} (${com.axiom.launcher.solis.ondevice.OnDeviceCatalog.size(it.sizeBytes)}) suits this phone and runs Solis offline" }
+                        ?: "This phone isn't suited to on-device models", if (best != null) CheckFix.ON_DEVICE else null)
+                a == null -> Unit
+                a.catalog != null && a.file.length() != a.catalog.sizeBytes ->
+                    add(area, CheckStatus.FAIL, "${a.name}: the file is damaged or incomplete; delete it and download it again", CheckFix.ON_DEVICE)
+                else -> {
+                    val speed = od.stats.value[a.id]?.let { s -> " · last answer ${"%.0f".format(s.decodeTps)} tokens/s on the ${s.backend.uppercase()}" }.orEmpty()
+                    add(area, if (core.prefs.onDeviceOn) CheckStatus.OK else CheckStatus.INFO,
+                        "${a.name} is on the phone (${com.axiom.launcher.solis.ondevice.OnDeviceCatalog.size(a.sizeBytes)})" + (if (core.prefs.onDeviceOn) speed else " but turned off"), CheckFix.ON_DEVICE)
+                    od.gpuBlockReason(a.id)?.let { add(area, CheckStatus.INFO, "The GPU didn't work with ${a.name} here, so it runs on the CPU (${it.take(100)})", CheckFix.ON_DEVICE) }
+                    a.catalog?.let { c -> if (spec.ramGb < c.minRamGb) add(area, CheckStatus.WARN, "${a.name} is large for this phone's memory; Gemma 4 E2B would be faster", CheckFix.ON_DEVICE) }
+                    if (od.client.status.value.state == "crashed") add(area, CheckStatus.WARN, "The on-device model stopped unexpectedly last time; it restarts on the next question")
+                }
+            }
         }
 
         guard(out, "Coding") {

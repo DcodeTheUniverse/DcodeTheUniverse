@@ -12,8 +12,11 @@ android {
         applicationId = "com.axiom.launcher"
         minSdk = 30
         targetSdk = 36
-        versionCode = 4
-        versionName = "2.2.0"
+        versionCode = 5
+        versionName = "2.3.0"
+        // LiteRT-LM (on-device models) ships 64-bit ARM and x86_64 code; leaving out x86_64 saves 26 MB. 32-bit ARM
+        // phones still install Axiom: they just can't run on-device models (the settings say so).
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
 
     // Release key is kept out of git. Point AXIOM_KEYSTORE at it (or drop it in keystore/);
@@ -86,6 +89,8 @@ dependencies {
     implementation("com.anthropic:anthropic-java:3.3.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("androidx.work:work-runtime-ktx:2.10.1")
+    // On-device models (Gemma 4) via Google's LiteRT-LM; runs in its own process (see ondevice/).
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.18.1")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
