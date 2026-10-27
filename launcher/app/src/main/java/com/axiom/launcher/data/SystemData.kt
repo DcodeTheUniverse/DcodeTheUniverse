@@ -53,6 +53,9 @@ data class NotifItem(
     val key: String,
     /** Posted in another profile (e.g. the work profile); kept out of personal-space tasks. */
     val otherProfile: Boolean = false,
+    val pkg: String = "",
+    /** Hash of the posting profile's UserHandle, to match the right app in the drawer. */
+    val userHash: Int = 0,
 )
 
 /** Opt-in: keeps the latest notifications in memory so Claude can summarize them. Nothing is stored on disk. */
@@ -62,12 +65,16 @@ class NotificationWatcher : NotificationListenerService() {
         runCatching { activeNotifications?.forEach { add(it) } }
     }
 
-    override fun onListenerDisconnected() { if (instance === this) instance = null }
+    override fun onListenerDisconnected() {
+        if (instance === this) instance = null
+        badgeFlow.value = emptyMap()
+    }
     override fun onNotificationPosted(sbn: StatusBarNotification?) { sbn?.let { add(it) } }
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
         sbn ?: return
         synchronized(items) { items.removeAll { it.key == sbn.key } }
         version++
+        publishBadges()
     }
 
     private fun add(sbn: StatusBarNotification) {
@@ -83,10 +90,12 @@ class NotificationWatcher : NotificationListenerService() {
         }.getOrDefault(sbn.packageName)
         synchronized(items) {
             items.removeAll { it.key == sbn.key }
-            items.add(0, NotifItem(label, title, text.take(400), sbn.postTime, sbn.key, otherProfile = sbn.user != android.os.Process.myUserHandle()))
+            items.add(0, NotifItem(label, title, text.take(400), sbn.postTime, sbn.key, otherProfile = sbn.user != android.os.Process.myUserHandle(),
+                pkg = sbn.packageName, userHash = sbn.user.hashCode()))
             while (items.size > 60) items.removeAt(items.size - 1)
         }
         version++
+        publishBadges()
     }
 
     companion object {
@@ -96,6 +105,16 @@ class NotificationWatcher : NotificationListenerService() {
         private val items = ArrayList<NotifItem>()
 
         fun snapshot(): List<NotifItem> = synchronized(items) { items.toList() }
+
+        private val badgeFlow = kotlinx.coroutines.flow.MutableStateFlow<Map<String, Int>>(emptyMap())
+        /** Unread notification count per app ("package|profile"), for app badges. Memory only. */
+        val badges: kotlinx.coroutines.flow.StateFlow<Map<String, Int>> = badgeFlow
+
+        fun badgeKey(pkg: String, userHash: Int) = "$pkg|$userHash"
+
+        private fun publishBadges() {
+            badgeFlow.value = synchronized(items) { items.groupingBy { badgeKey(it.pkg, it.userHash) }.eachCount() }
+        }
         fun connected() = instance != null
 
         fun enabled(ctx: Context): Boolean {

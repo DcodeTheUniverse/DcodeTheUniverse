@@ -99,19 +99,21 @@ class MemoryIndex {
         totalLen -= docLen.remove(id) ?: 0
     }
 
-    /** Raw BM25 scores for docs matching any query term. */
+    /** Raw BM25 scores for docs matching any query term; [related] terms (topics) count at [relatedWeight]. */
     @Synchronized
-    fun score(query: String): Map<String, Double> {
+    fun score(query: String, related: Collection<String> = emptyList(), relatedWeight: Double = 0.5): Map<String, Double> {
         val n = docLen.size
         if (n == 0) return emptyMap()
         val avg = totalLen.toDouble() / n
         val out = HashMap<String, Double>()
-        for (t in tokenize(query).toSet()) {
+        val main = tokenize(query).toSet()
+        val terms = main.map { it to 1.0 } + related.flatMap { tokenize(it) }.toSet().filter { it !in main }.map { it to relatedWeight }
+        for ((t, w) in terms) {
             val p = postings[t] ?: continue
             val idf = ln(1 + (n - p.size + 0.5) / (p.size + 0.5))
             for ((doc, tf) in p) {
                 val dl = docLen[doc] ?: continue
-                val s = idf * tf * (K1 + 1) / (tf + K1 * (1 - B + B * dl / avg))
+                val s = w * idf * tf * (K1 + 1) / (tf + K1 * (1 - B + B * dl / avg))
                 out[doc] = (out[doc] ?: 0.0) + s
             }
         }
@@ -183,7 +185,8 @@ class MemoryService(private val store: MemoryPersistence, private val clock: () 
      */
     fun search(query: String, scopes: Set<Scope>, limit: Int = 8, minScore: Double = 0.05, by: String? = null): List<Recall> = synchronized(this) {
         val now = clock()
-        val raw = index.score(query)
+        // Topic words widen the search to memories about the same thing in other words.
+        val raw = index.score(query, Topics.expand(query))
         val hits = raw.mapNotNull { (id, s) ->
             val it = items[id] ?: return@mapNotNull null
             if (it.scope !in scopes) return@mapNotNull null
@@ -230,6 +233,7 @@ class MemoryService(private val store: MemoryPersistence, private val clock: () 
         val clean = text.trim().take(MAX_TEXT)
         require(clean.isNotEmpty()) { "empty memory" }
         val now = clock()
+        @Suppress("NAME_SHADOWING") val tags = cleanTags(tags + Topics.of(clean))
         val dup = findDuplicate(clean, kind, scope)
         val item = if (dup != null) {
             dup.copy(text = clean, updatedAt = now, confidence = maxOf(dup.confidence, confidence),
@@ -280,11 +284,12 @@ class MemoryService(private val store: MemoryPersistence, private val clock: () 
         items.values.filter { it.scope.threadId == threadId }.map { it.id }.forEach { forget(it) }
     }
 
-    private fun write(item: MemoryItem) {
+    private fun write(item: MemoryItem, quiet: Boolean = false) {
         items[item.id] = item
         index.put(item)
         store.upsertMemory(item)
         if (items.size > MAX_ITEMS) prune()
+        if (quiet) return
         changed()
         onActivity?.invoke(MemoryActivity(MemoryActivity.Kind.WRITE, listOf(item.id), item.source.takeIf { it.startsWith("solis:") }?.removePrefix("solis:"), item.updatedAt))
     }
@@ -320,6 +325,65 @@ class MemoryService(private val store: MemoryPersistence, private val clock: () 
         return j >= 0.85
     }
 
+    // ---------------- tidy-up ----------------
+
+    data class TidyReport(val merged: Int, val cleared: Int, val tagged: Int) {
+        val changed: Boolean get() = merged + cleared + tagged > 0
+        fun summary(): String = if (!changed) "Memory is already tidy" else listOfNotNull(
+            merged.takeIf { it > 0 }?.let { "merged $it duplicate${if (it == 1) "" else "s"}" },
+            cleared.takeIf { it > 0 }?.let { "cleared $it old task note${if (it == 1) "" else "s"}" },
+            tagged.takeIf { it > 0 }?.let { "tagged $it by topic" },
+        ).joinToString(", ").replaceFirstChar { it.uppercase() }
+    }
+
+    /**
+     * Deterministic housekeeping, no model call: clears short-term notes of tasks that ended over two weeks
+     * ago, merges near-duplicate long-term memories in the same scope (keeping the newest wording, the highest
+     * confidence and every tag), and adds topic tags to memories that have none. Pinned items are never removed.
+     */
+    fun tidy(liveThreads: Set<String>): TidyReport = synchronized(this) {
+        val now = clock()
+        var cleared = 0
+        var merged = 0
+        var tagged = 0
+        items.values.filter { !it.kind.longTerm && !it.pinned && it.scope.threadId != null && it.scope.threadId !in liveThreads && now - it.updatedAt > STALE_MS }
+            .forEach { drop(it.id); cleared++ }
+        val longTerm = items.values.filter { it.kind.longTerm }.sortedByDescending { it.updatedAt }
+        val gone = HashSet<String>()
+        for (keep in longTerm) {
+            if (keep.id in gone || keep.id !in items) continue
+            val twins = index.score(keep.text).keys.asSequence()
+                .mapNotNull { items[it] }
+                .filter { it.id != keep.id && it.id !in gone && it.scope == keep.scope && it.kind.longTerm && similar(it.text, keep.text) }
+                .toList()
+            if (twins.isEmpty()) continue
+            val all = twins + keep
+            write(keep.copy(
+                confidence = all.maxOf { it.confidence },
+                pinned = all.any { it.pinned },
+                tags = cleanTags(all.flatMap { it.tags }),
+                createdAt = all.minOf { it.createdAt },
+                version = keep.version + 1,
+            ), quiet = true)
+            twins.forEach { drop(it.id); gone += it.id; merged++ }
+        }
+        items.values.filter { m -> m.tags.none { it in Topics.names } }.forEach { m ->
+            val topics = Topics.of(m.text)
+            if (topics.isNotEmpty()) { write(m.copy(tags = cleanTags(m.tags + topics), version = m.version + 1), quiet = true); tagged++ }
+        }
+        if (cleared + merged + tagged > 0) changed()
+        TidyReport(merged, cleared, tagged)
+    }
+
+    private fun drop(id: String) {
+        items.remove(id) ?: return
+        index.remove(id)
+        store.deleteMemory(id)
+    }
+
+    private fun cleanTags(tags: List<String>): List<String> =
+        tags.map { it.trim().lowercase(Locale.ROOT).replace(Regex("\\s+"), "-").take(32) }.filter { it.isNotEmpty() }.distinct().take(MAX_TAGS)
+
     // ---------------- export / import ----------------
 
     fun exportJson(): String = synchronized(this) {
@@ -351,6 +415,8 @@ class MemoryService(private val store: MemoryPersistence, private val clock: () 
     companion object {
         const val MAX_ITEMS = 5000
         const val MAX_TEXT = 2000
+        const val MAX_TAGS = 12
+        private const val STALE_MS = 14 * 86_400_000L
         private const val DUP_CANDIDATES = 20
 
         fun toJson(m: MemoryItem): JSONObject = JSONObject()

@@ -18,6 +18,10 @@
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Optional lock for Solis, memory, tasks and settings. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <!-- Voice mode listens in the app (asked only when you start it); also lets the assistant hand speech to another recognizer. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Solis: keep user-started tasks running in the background, with a progress notification. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
@@ -120,6 +124,39 @@
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE" />
             </intent-filter>
+        </service>
+
+        <!-- Digital assistant: "Ask about this screen" when the user holds Home. -->
+        <service
+            android:name=".platform.AxiomAssistService"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_VOICE_INTERACTION">
+            <meta-data
+                android:name="android.voice_interaction"
+                android:resource="@xml/voice_interaction" />
+            <intent-filter>
+                <action android:name="android.service.voice.VoiceInteractionService" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".platform.AxiomAssistSessionService"
+            android:exported="true"
+            android:permission="android.permission.BIND_VOICE_INTERACTION" />
+
+        <!-- Required of an assistant: passes other apps' speech recognition to an on-device or installed recognizer. -->
+        <service
+            android:name=".platform.AxiomRecognitionService"
+            android:exported="true"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.speech.RecognitionService" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <meta-data
+                android:name="android.speech"
+                android:resource="@xml/recognition_service" />
         </service>
 
         <service

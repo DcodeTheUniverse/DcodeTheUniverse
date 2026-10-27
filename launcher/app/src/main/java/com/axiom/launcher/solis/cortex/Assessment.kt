@@ -101,6 +101,7 @@ data class Assessment(
 object LocalAssessor {
     private val ACTION = Regex("\\b(open|launch|call|dial|text|message|email|set|remind|alarm|timer|play|pause|skip|navigate|directions|find|search|files?|folder|photos?|calendar|agenda|note|remember|flashlight|torch|volume|settings|wifi|bluetooth|notifications?|clipboard|battery|contact|repo|repository|github|pull request|claude code)\\b")
     private val WEB = Regex("\\b(latest|news|today'?s|current(ly)?|price of|weather|forecast|score|stock|search the web|look up|online)\\b")
+    private val LINK = Regex("(https?://|\\bwww\\.)\\S+")
     private val PLANNING = Regex("\\b(plan|compare|research|analy[sz]e|design|strategy|itinerary|schedule|organi[sz]e|break down|step[- ]by[- ]step|pros and cons|budget|roadmap|outline)\\b")
     private val CODE = Regex("\\b(code|function|bug|regex|sql|kotlin|python|javascript|algorithm|compile|stack trace|repo|repository|github|pull request|refactor)\\b")
     private val MATH = Regex("\\b(prove|derivative|integral|equation|probability|statistic)")
@@ -132,6 +133,8 @@ object LocalAssessor {
         val needs = attachments.toMutableSet()
         if (ACTION.containsMatchIn(t)) needs += Need.TOOLS
         if (WEB.containsMatchIn(t)) needs += Need.WEB
+        // A link is read with the read_web_page tool, not a paid web search.
+        if (LINK.containsMatchIn(t)) { needs += Need.TOOLS; reasons += "link" }
         val contextTokens = text.length / 4 + historyTokens + attachmentTokens
         if (contextTokens > 24_000) needs += Need.LONG_CONTEXT
 

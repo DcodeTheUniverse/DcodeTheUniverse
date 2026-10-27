@@ -1,5 +1,23 @@
 package com.axiom.launcher.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material.icons.outlined.BookmarkAdd
+import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.outlined.RecordVoiceOver
+import androidx.compose.material.icons.outlined.VoiceOverOff
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
+import com.axiom.launcher.VoicePhase
+import java.io.File
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -89,19 +107,41 @@ import org.json.JSONObject
 fun SolisPage(vm: LauncherViewModel, active: Boolean, openTasks: () -> Unit, openMemory: () -> Unit) {
     val p = LocalPalette.current
     val voice = LocalVoice.current
+    val ctx = LocalContext.current
     val selected = vm.selectedThread?.let { id -> vm.threads.firstOrNull { it.id == id } }
+    val micPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) vm.startVoiceMode() else vm.say("Voice mode needs the microphone")
+    }
+    val startVoiceMode = {
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) vm.startVoiceMode()
+        else micPerm.launch(Manifest.permission.RECORD_AUDIO)
+    }
+    var snapPath by rememberSaveable { mutableStateOf<String?>(null) }
+    val snap = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        snapPath?.let { vm.onSnapped(File(it), ok) }
+        snapPath = null
+    }
+    val takePhoto = {
+        val f = vm.snapFile()
+        snapPath = f.path
+        runCatching { snap.launch(FileProvider.getUriForFile(ctx, "${ctx.packageName}.files", f)) }.onFailure { snapPath = null; vm.say("No camera app found") }
+    }
 
     Column(
         Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding().padding(horizontal = 18.dp),
     ) {
         Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            SolisFace(vm.face, size = 62.dp, interactive = true, onClick = { vm.brainView = true; openMemory() })
+            SolisFace(vm.face, size = 62.dp, interactive = true, onClick = {
+                if (vm.voicePhase == VoicePhase.SPEAKING) vm.voiceInterrupt() else { vm.brainView = true; openMemory() }
+            })
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(if (Netrunner) "solis" else "Solis", style = lStyle(28.sp, FontWeight.Light), modifier = Modifier.semantics { heading() })
                 Text(headerLine(vm), style = lStyle(12.sp, color = p.dim), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+            if (vm.voicePhase == VoicePhase.OFF) IconBtn(Icons.Outlined.RecordVoiceOver, "Voice mode: talk with Solis hands-free") { startVoiceMode() }
+            else IconBtn(Icons.Outlined.VoiceOverOff, "End voice mode", p.accent) { vm.stopVoiceMode() }
             IconBtn(Icons.AutoMirrored.Outlined.ViewList, "Task overview", onClick = openTasks)
             IconBtn(Icons.Outlined.Hub, "Memory and brain view") { vm.brainView = true; openMemory() }
         }
@@ -127,6 +167,28 @@ fun SolisPage(vm: LauncherViewModel, active: Boolean, openTasks: () -> Unit, ope
             }
         }
 
+        if (vm.pendingAttachment?.name?.startsWith("Screen") == true && vm.solisDraft.isBlank()) {
+            Row(Modifier.horizontalScroll(rememberScrollState()).padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                vm.screenPrompts.forEach { q -> Chip(q) { vm.sendSolis(q) } }
+            }
+        }
+
+        if (vm.voicePhase != VoicePhase.OFF) {
+            VoicePanel(vm)
+            Spacer(Modifier.height(10.dp))
+            return@Column
+        }
+
+        if (vm.batchAvailable && selected == null && vm.pendingAttachment == null && vm.solisDraft.isNotBlank() && vm.effectiveEngine != "app") {
+            Row(Modifier.padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Chip(if (vm.batchNext) "Half-price batch ✓" else "Half-price batch", selected = vm.batchNext) { vm.batchNext = !vm.batchNext }
+                Text(
+                    if (vm.batchNext) "  Answer within 24 h, no phone actions" else "  Not urgent? Half the price",
+                    style = lStyle(12.sp, color = p.dim), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+
         val followUp = selected != null && selected.status.acceptsFollowUp
         val running = selected != null && selected.status == ThreadStatus.RUNNING
         InputBar(
@@ -143,11 +205,63 @@ fun SolisPage(vm: LauncherViewModel, active: Boolean, openTasks: () -> Unit, ope
             singleLine = false,
             trailing = {
                 if (running && vm.solisDraft.isBlank()) IconBtn(Icons.Outlined.Stop, "Pause this task", p.danger) { vm.pauseThread(selected!!.id) }
-                else if (vm.solisDraft.isBlank() && vm.pendingAttachment == null) IconBtn(Icons.Outlined.Mic, "Speak to Solis") { voice { vm.sendSolis(it) } }
+                else if (vm.solisDraft.isBlank() && vm.pendingAttachment == null) Row {
+                    IconBtn(Icons.Outlined.PhotoCamera, "Snap a photo and ask") { takePhoto() }
+                    IconBtn(Icons.Outlined.Mic, "Speak to Solis") { voice { vm.sendSolis(it) } }
+                }
                 else IconBtn(Icons.AutoMirrored.Outlined.Send, "Send", p.accent) { vm.sendSolis() }
             },
         )
         Spacer(Modifier.height(10.dp))
+    }
+}
+
+/** The user's quick prompts: tap to ask, long-press to remove; the current draft can be saved as one. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SavedPrompts(vm: LauncherViewModel) {
+    val p = LocalPalette.current
+    val draft = vm.solisDraft.trim()
+    if (vm.savedPrompts.isEmpty() && draft.length < 6) return
+    Text(if (Netrunner) "// saved" else "YOUR PROMPTS", style = lStyle(10.sp, FontWeight.Medium, p.dim).copy(letterSpacing = 2.sp))
+    vm.savedPrompts.forEach { s ->
+        Text(
+            (if (Netrunner) "$ " else "★  ") + s,
+            style = lStyle(15.sp), maxLines = 2, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                .combinedClickable(onClick = { vm.sendSolis(s) }, onLongClick = { vm.deletePrompt(s); vm.say("Removed “${s.take(30)}”") })
+                .padding(vertical = 8.dp),
+        )
+    }
+    if (draft.length >= 6 && draft !in vm.savedPrompts) Chip("Save draft as a prompt", icon = Icons.Outlined.BookmarkAdd) { vm.savePrompt(draft) }
+    Spacer(Modifier.height(12.dp))
+}
+
+/** Voice mode: what Solis heard, what it's doing, and a way out. */
+@Composable
+private fun VoicePanel(vm: LauncherViewModel) {
+    val p = LocalPalette.current
+    val shape = if (Netrunner) RoundedCornerShape(2.dp) else RoundedCornerShape(20.dp)
+    Column(Modifier.fillMaxWidth().clip(shape).background(p.surface).border(1.dp, p.faint, shape).padding(16.dp)) {
+        Text(
+            when (vm.voicePhase) {
+                VoicePhase.LISTENING -> if (Netrunner) "> listening_" else "Listening…"
+                VoicePhase.THINKING -> if (Netrunner) "> processing_" else "Thinking…"
+                VoicePhase.SPEAKING -> if (Netrunner) "> speaking_" else "Speaking…"
+                VoicePhase.OFF -> ""
+            },
+            style = lStyle(18.sp, FontWeight.Medium),
+            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+        )
+        Text(
+            vm.voiceHeard.ifBlank { "Talk normally. Say “stop” or tap End when you're done." },
+            style = lStyle(14.sp, color = if (vm.voiceHeard.isBlank()) p.dim else p.fg), maxLines = 4, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Chip("End", selected = true) { vm.stopVoiceMode() }
+            if (vm.voicePhase == VoicePhase.SPEAKING) Chip("Interrupt") { vm.voiceInterrupt() }
+        }
     }
 }
 
@@ -228,6 +342,7 @@ private fun SolisEmpty(vm: LauncherViewModel) {
             style = lStyle(14.sp, color = p.dim), modifier = Modifier.padding(top = 6.dp),
         )
         Spacer(Modifier.height(14.dp))
+        SavedPrompts(vm)
         listOf(
             "Plan my evening around a 7pm gym session",
             "Find my latest PDF and summarize it",
@@ -344,6 +459,7 @@ private fun ThreadView(vm: LauncherViewModel, t: AgentThread, active: Boolean) {
 
 @Composable
 private fun ThreadHeader(vm: LauncherViewModel, t: AgentThread, details: Boolean, toggle: () -> Unit) {
+    var receipts by remember(t.id) { mutableStateOf(false) }
     val p = LocalPalette.current
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = toggle).padding(vertical = 4.dp)) {
         Text(t.title, style = lStyle(17.sp, FontWeight.Medium), maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -370,7 +486,9 @@ private fun ThreadHeader(vm: LauncherViewModel, t: AgentThread, details: Boolean
         if (t.isActive || t.status == ThreadStatus.PAUSED) Chip("Cancel", icon = Icons.Outlined.Close) { vm.cancelThread(t.id) }
         else Chip("Delete", icon = Icons.Outlined.Delete) { vm.deleteThread(t.id) }
         Chip(if (details) "Hide details" else "Details") { toggle() }
+        if (t.usage.calls > 0 || vm.engine.receipts(t.id).isNotEmpty()) Chip("What was sent") { receipts = true }
     }
+    if (receipts) ReceiptsDialog(vm, t) { receipts = false }
 }
 
 @Composable

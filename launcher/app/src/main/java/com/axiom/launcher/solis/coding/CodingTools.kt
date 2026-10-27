@@ -117,6 +117,14 @@ class CodingTools(private val bridge: CodingBridge) : ToolHost {
                 }
             }
         },
+        SolisTool("code_fix_checks", "Ask Claude Code to fix the failing checks on a job's pull request: posts the failures (names, summaries, " +
+            "annotations) on the PR with @claude so it fixes them on the same branch.", ToolGroup.CODE, SideEffect.EXTERNAL,
+            mapOf("repo" to str("owner/name; omit for the default repository"), "number" to int("Issue or pull request number")), listOf("number")) { a, _ ->
+            guard {
+                val j = bridge.askFix(jobOf(a).id)
+                ToolResult("Asked Claude Code to fix the checks on PR #${j.pr}; following it.", true, "asked Claude to fix #${j.pr}")
+            }
+        },
         SolisTool("code_open_pr", "Open a pull request from the branch Claude Code pushed for a job, so its checks run and the user can review it.",
             ToolGroup.CODE, SideEffect.EXTERNAL,
             mapOf("repo" to str("owner/name; omit for the default repository"), "number" to int("Issue number"), "draft" to bool("Open as draft")),

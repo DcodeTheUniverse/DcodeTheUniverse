@@ -23,9 +23,19 @@ class Prefs(context: Context) {
     var theme: String get() = str("theme", "void"); set(v) = putStr("theme", v)
     var userName: String get() = str("user_name", ""); set(v) = putStr("user_name", v)
     var showIcons: Boolean get() = bool("show_icons", false); set(v) = putBool("show_icons", v)
+    var showBadges: Boolean get() = bool("show_badges", true); set(v) = putBool("show_badges", v)
+    /** Suggestion cards on home from local rules (leave for an event, join a call, low battery…). */
+    var proactiveCards: Boolean get() = bool("proactive", true); set(v) = putBool("proactive", v)
+    var proactiveDismissed: List<String> get() = readStringList("proactive_dismissed"); set(v) = writeStringList("proactive_dismissed", v)
+    /** Day ("yyyyMMdd") the user last asked for a brief. */
+    var briefDay: String get() = str("brief_day", ""); set(v) = putStr("brief_day", v)
     var monoIcons: Boolean get() = bool("mono_icons", true); set(v) = putBool("mono_icons", v)
+    /** Package of the chosen icon pack; empty for system icons. */
+    var iconPack: String get() = str("icon_pack", ""); set(v) = putStr("icon_pack", v)
     var clock24: Boolean get() = bool("clock24", true); set(v) = putBool("clock24", v)
     var speakReplies: Boolean get() = bool("speak", false); set(v) = putBool("speak", v)
+    /** The user's own quick prompts for Solis, in order. */
+    var savedPrompts: List<String> get() = readStringList("saved_prompts"); set(v) = writeStringList("saved_prompts", v)
     var effects: Boolean get() = bool("effects", true); set(v) = putBool("effects", v)
     var autoKeyboard: Boolean get() = bool("auto_kb", true); set(v) = putBool("auto_kb", v)
     var onboarded: Boolean get() = bool("onboarded", false); set(v) = putBool("onboarded", v)
@@ -54,6 +64,12 @@ class Prefs(context: Context) {
     var workReadsPersonal: Boolean get() = bool("share_w_p", false); set(v) = putBool("share_w_p", v)
     var personalReadsWork: Boolean get() = bool("share_p_w", false); set(v) = putBool("share_p_w", v)
     var autoResume: Boolean get() = bool("auto_resume", false); set(v) = putBool("auto_resume", v)
+    /** Hide emails, phone numbers, card numbers and IBANs from cloud models (placeholders, restored on the phone). */
+    var redactPersonal: Boolean get() = bool("redact", false); set(v) = putBool("redact", v)
+    /** Half-price batches use the most capable Anthropic model instead of the newest Sonnet-class one. */
+    var batchBest: Boolean get() = bool("batch_best", false); set(v) = putBool("batch_best", v)
+    /** Ask for fingerprint, face or screen lock before showing Solis, memory, tasks or settings. */
+    var biometricLock: Boolean get() = bool("bio_lock", false); set(v) = putBool("bio_lock", v)
 
     // ---- coding bridge (the GitHub token is in SecretStore) ----
     var githubRepo: String get() = str("gh_repo", ""); set(v) = putStr("gh_repo", v.trim())
@@ -63,6 +79,8 @@ class Prefs(context: Context) {
     // ---- modes & routines ----
     var modesJson: String? get() = sp.getString("modes", null); set(v) = putStr("modes", v)
     var routinesJson: String? get() = sp.getString("routines", null); set(v) = putStr("routines", v)
+    /** Widgets on the home screen, in order (see [com.axiom.launcher.platform.HomeWidget]). */
+    var widgetsJson: String? get() = sp.getString("widgets", null); set(v) = putStr("widgets", v)
     var activeMode: String get() = str("active_mode", "personal"); set(v) = putStr("active_mode", v)
     var tempModeUntil: Long get() = sp.getLong("temp_until", 0); set(v) = sp.edit().putLong("temp_until", v).apply()
     var tempModeRevert: String get() = str("temp_revert", "personal"); set(v) = putStr("temp_revert", v)
@@ -112,6 +130,24 @@ class Prefs(context: Context) {
 
     fun loadRecents(): List<String> = readStringList("recents")
     fun saveRecents(v: List<String>) = writeStringList("recents", v)
+
+    /** Stored values for [keys], as saved (String, Boolean, Int, Long or Float). */
+    fun snapshot(keys: Set<String>): Map<String, Any> = sp.all.filterKeys { it in keys }.mapNotNull { (k, v) -> v?.let { k to it } }.toMap()
+
+    /** Writes already-validated values in one commit. */
+    fun restore(values: Map<String, Any>) {
+        val e = sp.edit()
+        values.forEach { (k, v) ->
+            when (v) {
+                is String -> e.putString(k, v)
+                is Boolean -> e.putBoolean(k, v)
+                is Int -> e.putInt(k, v)
+                is Long -> e.putLong(k, v)
+                is Float -> e.putFloat(k, v)
+            }
+        }
+        e.commit()
+    }
 
     private fun readStringList(key: String): List<String> {
         val arr = JSONArray(str(key, "[]"))

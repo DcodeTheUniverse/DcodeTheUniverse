@@ -67,6 +67,8 @@ data class CodingJob(
     val askedAt: Long = createdAt,
     /** Our latest "@claude" follow-up comment: only Claude's comments after it describe the new run. */
     val triggerCommentId: Long = 0,
+    /** Where that comment was posted when not on the issue (the pull request, for fixing checks). */
+    val trackOn: Int? = null,
 ) {
     val id: String get() = "$repo#$issue"
     val active: Boolean get() = watching && !state.terminal
@@ -79,6 +81,7 @@ data class CodingJob(
         put("headSha", headSha ?: JSONObject.NULL); put("checks", checks ?: JSONObject.NULL); put("checksDone", checksDone)
         put("changes", changes ?: JSONObject.NULL); put("summary", summary ?: JSONObject.NULL); put("mergeRequested", mergeRequested)
         put("lastPolledAt", lastPolledAt); put("watching", watching); put("askedAt", askedAt); put("triggerCommentId", triggerCommentId)
+        put("trackOn", trackOn ?: JSONObject.NULL)
     }
 
     companion object {
@@ -93,6 +96,7 @@ data class CodingJob(
             checksDone = o.optBoolean("checksDone", true), changes = o.s("changes"), summary = o.s("summary"),
             mergeRequested = o.optBoolean("mergeRequested"), lastPolledAt = o.optLong("lastPolledAt"), watching = o.optBoolean("watching", true),
             askedAt = o.optLong("askedAt", o.optLong("createdAt")), triggerCommentId = o.optLong("triggerCommentId"),
+            trackOn = if (o.isNull("trackOn") || !o.has("trackOn")) null else o.optInt("trackOn"),
         )
     }
 }
@@ -181,6 +185,10 @@ class CodingBridge(
     private val wake = Channel<Unit>(Channel.CONFLATED)
     private val pollLock = Mutex()
     @Volatile private var started = false
+    private val loaded = kotlinx.coroutines.CompletableDeferred<Unit>()
+
+    /** Waits until saved jobs are back in memory (a background worker may start the process cold). */
+    suspend fun awaitLoaded() = loaded.await()
 
     val configured: Boolean get() = github.configured
 
@@ -189,7 +197,8 @@ class CodingBridge(
         started = true
         scope.launch(Dispatchers.IO) {
             runCatching { load()?.let { s -> JSONArray(s).let { a -> (0 until a.length()).map { CodingJob.fromJson(a.getJSONObject(it)) } } } }
-                .getOrNull()?.let { loaded -> _jobs.update { cur -> cur + loaded.filter { l -> cur.none { it.id == l.id } } } }
+                .getOrNull()?.let { restored -> _jobs.update { cur -> cur + restored.filter { l -> cur.none { it.id == l.id } } } }
+            loaded.complete(Unit)
             while (isActive) {
                 pollDue()
                 val next = _jobs.value.filter { it.active }.minOfOrNull { it.nextPollAt }
@@ -231,7 +240,7 @@ class CodingBridge(
             val c = github.comment(r, existingIssue, "$TRIGGER $spec")
             (jobFor(r, existingIssue) ?: CodingJob(r, issue.number, issue.title, issue.url, threadId, now, now))
                 .copy(state = JobState.SENT, detail = "Asked Claude again on #${issue.number}", watching = true, nextPollAt = now + FIRST_POLL_MS,
-                    changedAt = now, mergeRequested = false, askedAt = now, triggerCommentId = c.id)
+                    changedAt = now, mergeRequested = false, askedAt = now, triggerCommentId = c.id, trackOn = null)
         } else {
             val issue = github.createIssue(r, title.trim().take(120).ifBlank { spec.take(80) }, issueBody(spec, threadId))
             CodingJob(r, issue.number, issue.title, issue.url, threadId, now, now, detail = SENT_DETAIL, nextPollAt = now + FIRST_POLL_MS)
@@ -259,7 +268,7 @@ class CodingBridge(
 
     private suspend fun observe(j: CodingJob, now: Long): CodingJob {
         val issue = github.issue(j.repo, j.issue)
-        val tracking = ClaudeComments.latest(github.comments(j.repo, j.issue).filter { it.id > j.triggerCommentId })?.let { ClaudeComments.parse(it) }
+        val tracking = ClaudeComments.latest(github.comments(j.repo, j.trackOn ?: j.issue).filter { it.id > j.triggerCommentId })?.let { ClaudeComments.parse(it) }
         var branch = tracking?.branch ?: j.branch
         if (branch == null && tracking != null && tracking.status != ClaudeComments.Status.WORKING) {
             branch = github.branches(j.repo, "claude/issue-${j.issue}-").maxOrNull()
@@ -287,13 +296,16 @@ class CodingBridge(
             pull == null && issue.state == "closed" && tracking?.status != ClaudeComments.Status.WORKING -> JobState.CLOSED
             tracking?.status == ClaudeComments.Status.ERROR -> JobState.ERROR
             tracking?.status == ClaudeComments.Status.WORKING || tracking?.status == ClaudeComments.Status.OTHER -> JobState.WORKING
+            // Asked again and Claude hasn't picked it up yet: the old checks don't describe the new run.
+            tracking == null && j.triggerCommentId > 0 && now - j.askedAt < STALL_MS -> JobState.SENT
             pull != null -> if ((checks?.failed ?: 0) > 0) JobState.CHECKS_FAILED else JobState.PR_OPEN
             tracking?.status == ClaudeComments.Status.FINISHED -> if (branch != null) JobState.READY else JobState.REPLIED
             now - j.askedAt > STALL_MS -> JobState.STALLED
             else -> JobState.SENT
         }
         val detail = when (state) {
-            JobState.SENT -> if (j.triggerCommentId > 0) "Asked Claude again; waiting for it to start" else SENT_DETAIL
+            JobState.SENT -> if (j.trackOn != null) "Asked Claude to fix the failing checks; waiting for it to start"
+                else if (j.triggerCommentId > 0) "Asked Claude again; waiting for it to start" else SENT_DETAIL
             JobState.STALLED -> "No reply from Claude after ${(now - j.askedAt) / 60_000} min. Check that the Claude workflow and its token are set up (Settings › Coding)."
             JobState.WORKING -> if (tracking != null && tracking.total > 0) "${tracking.done}/${tracking.total}" + (tracking.current?.let { " · $it" } ?: "")
                 else "Claude is working on it"
@@ -344,6 +356,37 @@ class CodingBridge(
         }
         github.openPull(j.repo, branch, base, j.title, body, draft)
         return refresh(id)
+    }
+
+    /**
+     * Posts the failing checks (names, GitHub's summaries, first annotations) on the pull request for
+     * Claude Code to fix on the same branch, and follows that run.
+     */
+    suspend fun askFix(id: String): CodingJob {
+        val j = refresh(id)
+        val pr = j.pr ?: throw IllegalStateException("There's no pull request with checks yet")
+        val sha = j.headSha ?: github.pull(j.repo, pr).headSha
+        val failures = github.failedChecks(j.repo, sha)
+        check(failures.isNotEmpty()) { "No failed checks on PR #$pr right now" }
+        val now = clock()
+        val recent = _jobs.value.count { now - it.askedAt < 3_600_000L }
+        check(recent < MAX_PER_HOUR) { "Already asked Claude $recent times in the last hour. Try again later." }
+        val c = github.comment(j.repo, pr, fixRequest(j.branch, failures))
+        val next = j.copy(state = JobState.SENT, detail = "Asked Claude to fix the failing checks; waiting for it to start", watching = true,
+            nextPollAt = now + FIRST_POLL_MS, changedAt = now, mergeRequested = false, askedAt = now, triggerCommentId = c.id, trackOn = pr)
+        put(next)
+        wake.trySend(Unit)
+        return next
+    }
+
+    /** The files a job changed, with patches (for the diff viewer). */
+    suspend fun files(id: String): List<GhFile> {
+        val j = job(id) ?: throw IllegalArgumentException("No coding job $id")
+        return when {
+            j.pr != null -> github.pullFiles(j.repo, j.pr)
+            j.branch != null -> github.compare(j.repo, j.baseBranch ?: github.repo(j.repo).defaultBranch, j.branch)
+            else -> emptyList()
+        }
     }
 
     /** Solis can only ask; the user sees "Merge?" on the job and confirms it there. */
@@ -478,6 +521,22 @@ class CodingBridge(
         const val MAX_PER_HOUR = 6
 
         fun changeLine(add: Int, del: Int, files: Int) = "+$add −$del in $files file${if (files == 1) "" else "s"}"
+
+        /** The "@claude, fix these checks" comment. */
+        fun fixRequest(branch: String?, failures: List<GhFailure>): String = buildString {
+            append(TRIGGER).append(" The checks on this pull request failed. Please find the cause, fix it on this branch")
+            branch?.let { append(" (`").append(it).append("`)") }
+            append(" and push. Read the failing jobs' logs; don't skip, disable or loosen tests to make them pass.\n\n")
+            failures.forEach { f ->
+                append("- **").append(f.name).append("**")
+                if (f.title.isNotBlank()) append(": ").append(f.title)
+                if (f.url.isNotBlank()) append(" ([details](").append(f.url).append("))")
+                append('\n')
+                f.summary.lines().filter { it.isNotBlank() }.take(6).forEach { append("  > ").append(it.take(200)).append('\n') }
+                f.annotations.take(8).forEach { append("  - `").append(it.replace("`", "'")).append("`\n") }
+            }
+            append("\n<sub>Requested from Axiom.</sub>")
+        }
 
         fun issueBody(spec: String, threadId: String?): String = buildString {
             append(TRIGGER).append(' ').append(spec.trim()).append("\n\n")

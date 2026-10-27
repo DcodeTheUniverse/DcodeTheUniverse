@@ -1,5 +1,17 @@
 package com.axiom.launcher.ui
 
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.axiom.launcher.solis.coding.GhFile
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -95,6 +107,20 @@ fun CodingSettings(vm: LauncherViewModel) {
         repos.take(12).forEach { r -> Chip(r.substringAfter('/'), selected = r == vm.prefs.githubRepo) { repo = r; vm.setGithubRepo(r) } }
     }
 
+    if (vm.githubConnected) {
+        SectionLabel("Repository per mode")
+        Text("Coding tasks started in a mode go to its repository; the rest use the default.", style = lStyle(13.sp, color = p.dim))
+        vm.modes.forEach { m ->
+            Text("${m.glyph} ${m.name}" + (m.codingRepo?.let { " · $it" } ?: " · default"), style = lStyle(14.sp), modifier = Modifier.padding(top = 8.dp))
+            Row(Modifier.horizontalScroll(rememberScrollState()).padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Chip("Default", selected = m.codingRepo == null) { vm.updateMode(m.copy(codingRepo = null)) }
+                (listOfNotNull(m.codingRepo) + repos).distinct().take(10).forEach { r ->
+                    Chip(r.substringAfter('/'), selected = m.codingRepo == r) { vm.updateMode(m.copy(codingRepo = r)) }
+                }
+            }
+        }
+    }
+
     SectionLabel("Claude Code on GitHub")
     listOf(
         "1. Install the Claude GitHub app on the repository.",
@@ -165,7 +191,10 @@ fun CodingJobRow(vm: LauncherViewModel, j: CodingJob) {
                 Chip("Not now") { confirmMerge = false; vm.dismissMerge(j.id) }
             } else {
                 if (j.state == JobState.READY) Chip("Open pull request", selected = true) { vm.openCodingPr(j.id) }
+                if (j.state == JobState.CHECKS_FAILED) Chip("Ask Claude to fix", selected = true) { vm.askClaudeFix(j.id) }
                 if (j.state == JobState.PR_OPEN && j.checksDone) Chip("Merge…") { confirmMerge = true }
+                if (j.pr != null || j.branch != null) Chip("Changes") { vm.diffJob = j.id }
+                if (j.pr != null && (j.state == JobState.PR_OPEN || j.state == JobState.CHECKS_FAILED)) Chip("Second opinion") { vm.secondOpinion(j) }
                 Chip("GitHub", icon = Icons.AutoMirrored.Outlined.OpenInNew) { vm.actions.openUrl(j.prUrl ?: j.url) }
                 if (!j.state.terminal) Chip("Check now") { vm.recheckCoding(j.id) }
                 if (j.threadId != null && vm.threads.any { it.id == j.threadId }) Chip("Solis thread") { vm.selectedThread = j.threadId; vm.pageRequest = com.axiom.launcher.PAGE_SOLIS }
@@ -203,3 +232,85 @@ fun CodingCard(vm: LauncherViewModel, j: CodingJob, open: () -> Unit) {
 fun homeCodingJobs(jobs: List<CodingJob>, now: Long = System.currentTimeMillis()): List<CodingJob> = jobs.filter {
     it.mergeRequested || (it.active && it.state != JobState.STALLED) || (it.state == JobState.MERGED && now - it.changedAt < 3_600_000L)
 }.take(3)
+
+/** The files a coding job changed, with each patch: green for added lines, red for removed, and the +/− kept so color isn't needed. */
+@Composable
+fun DiffViewer(vm: LauncherViewModel, id: String, load: suspend () -> Result<List<GhFile>> = { vm.codingFiles(id) }, onClose: () -> Unit) {
+    val p = LocalPalette.current
+    val j = vm.codingJobs.firstOrNull { it.id == id }
+    val files by produceState<Result<List<GhFile>>?>(null, id) { value = load() }
+    val open = remember { mutableStateMapOf<String, Boolean>() }
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(Modifier.fillMaxSize().background(p.bg).statusBarsPadding().navigationBarsPadding()) {
+            Row(Modifier.padding(start = 20.dp, end = 8.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(if (Netrunner) "git diff" else "Changes", style = lStyle(26.sp, FontWeight.Light), modifier = Modifier.semantics { heading() })
+                    Text(j?.let { "${it.repo}#${it.pr ?: it.issue} · ${it.title}" } ?: id, style = lStyle(12.sp, color = p.dim), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                j?.let { job -> IconBtn(Icons.AutoMirrored.Outlined.OpenInNew, "Open on GitHub") { vm.actions.openUrl((job.prUrl?.let { "$it/files" }) ?: job.url) } }
+                IconBtn(Icons.Outlined.Close, "Close", onClick = onClose)
+            }
+            val result = files
+            when {
+                result == null -> Text("Loading the changes…", style = lStyle(14.sp, color = p.dim), modifier = Modifier.padding(20.dp))
+                result.isFailure -> Text(result.exceptionOrNull()?.message ?: "Couldn't load the changes", style = lStyle(14.sp, color = p.danger), modifier = Modifier.padding(20.dp))
+                result.getOrThrow().isEmpty() -> Text("No file changes yet.", style = lStyle(14.sp, color = p.dim), modifier = Modifier.padding(20.dp))
+                else -> {
+                    val list = result.getOrThrow()
+                    LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
+                        item {
+                            Text("${list.size} files · +${list.sumOf { it.additions }} −${list.sumOf { it.deletions }}",
+                                style = lStyle(13.sp, FontWeight.Medium), modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp))
+                        }
+                        list.forEach { f ->
+                            val expanded = open[f.path] ?: (list.size <= 6)
+                            item(key = "h:" + f.path) {
+                                Row(
+                                    Modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(8.dp)).background(p.surface)
+                                        .clickable { open[f.path] = !expanded }.padding(horizontal = 10.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(if (expanded) "▾ " else "▸ ", style = lStyle(13.sp, color = p.dim))
+                                    Text(f.path, style = lStyle(12.sp, FontWeight.Medium).copy(fontFamily = FontFamily.Monospace), modifier = Modifier.weight(1f),
+                                        maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    Text(" ${f.status} +${f.additions} −${f.deletions}", style = lStyle(11.sp, color = p.dim))
+                                }
+                            }
+                            if (expanded) {
+                                val lines = f.patch?.lines().orEmpty()
+                                if (lines.isEmpty()) item(key = "e:" + f.path) {
+                                    Text("No text diff (binary, renamed or too large).", style = lStyle(12.sp, color = p.dim), modifier = Modifier.padding(8.dp))
+                                }
+                                lines.take(MAX_DIFF_LINES).forEachIndexed { i, line -> item(key = "l:${f.path}:$i") { DiffLine(line) } }
+                                if (lines.size > MAX_DIFF_LINES) item(key = "m:" + f.path) {
+                                    Text("… ${lines.size - MAX_DIFF_LINES} more lines on GitHub", style = lStyle(12.sp, color = p.dim), modifier = Modifier.padding(8.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private const val MAX_DIFF_LINES = 400
+private val ADDED = androidx.compose.ui.graphics.Color(0x333FB950)
+private val REMOVED = androidx.compose.ui.graphics.Color(0x33F85149)
+
+@Composable
+private fun DiffLine(line: String) {
+    val p = LocalPalette.current
+    // Fixed green and red tints read the same on every theme's background.
+    val (bg, fg) = when {
+        line.startsWith("@@") -> p.surface to p.dim
+        line.startsWith("+") -> ADDED to p.fg
+        line.startsWith("-") -> REMOVED to p.fg
+        else -> androidx.compose.ui.graphics.Color.Transparent to p.fg
+    }
+    Text(
+        line.ifEmpty { " " },
+        style = lStyle(11.sp, color = fg).copy(fontFamily = FontFamily.Monospace, lineHeight = 15.sp),
+        modifier = Modifier.fillMaxWidth().background(bg).padding(horizontal = 8.dp, vertical = 1.dp),
+    )
+}

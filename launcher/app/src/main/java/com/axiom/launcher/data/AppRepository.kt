@@ -6,6 +6,8 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.LauncherApps
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
 import android.os.Process
 import android.os.UserHandle
 import android.util.LruCache
@@ -48,18 +50,29 @@ class AppRepository(private val context: Context) {
         return out.sortedBy { it.label.lowercase() }
     }
 
+    /** The chosen icon pack, or null for system icons. */
+    @Volatile var iconPack: IconPack? = null
+
     fun icon(app: AppInfo, sizePx: Int): Bitmap? {
         iconCache.get(app.key)?.let { return it }
         val bmp = runCatching {
             val act = launcherApps.resolveActivity(Intent(Intent.ACTION_MAIN).setComponent(app.component), app.user) ?: return null
-            val d = act.getBadgedIcon(0) // includes the system's work-profile badge
-            val b = createBitmap(sizePx, sizePx)
-            d.setBounds(0, 0, sizePx, sizePx)
-            d.draw(Canvas(b))
-            b
+            val packed = runCatching { iconPack?.icon(app.component, sizePx) { act.getIcon(0) } }.getOrNull()
+            when {
+                packed == null -> draw(act.getBadgedIcon(0), sizePx) // includes the system's work-profile badge
+                app.user == Process.myUserHandle() -> packed
+                else -> draw(context.packageManager.getUserBadgedIcon(BitmapDrawable(context.resources, packed), app.user), sizePx)
+            }
         }.getOrNull() ?: return null
         iconCache.put(app.key, bmp)
         return bmp
+    }
+
+    private fun draw(d: Drawable, sizePx: Int): Bitmap {
+        val b = createBitmap(sizePx, sizePx)
+        d.setBounds(0, 0, sizePx, sizePx)
+        d.draw(Canvas(b))
+        return b
     }
 
     fun launch(app: AppInfo) = launcherApps.startMainActivity(app.component, app.user, null, null)

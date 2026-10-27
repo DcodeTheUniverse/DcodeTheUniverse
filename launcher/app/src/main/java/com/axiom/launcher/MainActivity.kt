@@ -12,6 +12,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.graphics.toArgb
 import com.axiom.launcher.platform.PerfMonitor
+import com.axiom.launcher.platform.REQUEST_WIDGET_CONFIGURE
 import com.axiom.launcher.ui.LauncherRoot
 import com.axiom.launcher.ui.effects.LocalReducedMotion
 import com.axiom.launcher.ui.theme.LauncherTheme
@@ -52,11 +53,22 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         PerfMonitor.attach(window)
+        vm.core.widgets.startListening()
+        vm.onForegrounded()
     }
 
     override fun onStop() {
+        vm.onBackgrounded()
+        vm.core.widgets.stopListening()
         PerfMonitor.detach(window)
         super.onStop()
+    }
+
+    /** A widget's own setup screen is started through the system, so its result comes back here. */
+    @Deprecated("Widget setup is started with an IntentSender, which has no ActivityResult contract here")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == REQUEST_WIDGET_CONFIGURE) { vm.onWidgetConfigured(resultCode == RESULT_OK); return }
+        @Suppress("DEPRECATION") super.onActivityResult(requestCode, resultCode, data)
     }
 
     override fun onResume() {
@@ -72,6 +84,7 @@ class MainActivity : ComponentActivity() {
                 vm.pageRequest = PAGE_SOLIS
                 if (intent.getBooleanExtra(EXTRA_VOICE, false)) vm.voiceRequest++
                 vm.receiveShared(intent.getStringExtra(EXTRA_SHARED_TEXT), sharedFile(intent.getStringExtra(EXTRA_SHARED_FILE)))
+                vm.receiveScreen(sharedFile(intent.getStringExtra(EXTRA_SCREEN_IMAGE)), sharedFile(intent.getStringExtra(EXTRA_SCREEN_TEXT)))
                 return true
             }
             ACTION_OPEN_TASKS -> {
@@ -99,5 +112,8 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_VOICE = "voice"
         const val EXTRA_SHARED_TEXT = "shared_text"
         const val EXTRA_SHARED_FILE = "shared_file"
+        /** "Ask about this screen": the screenshot and the screen's text, written by the assistant session. */
+        const val EXTRA_SCREEN_IMAGE = "screen_image"
+        const val EXTRA_SCREEN_TEXT = "screen_text"
     }
 }

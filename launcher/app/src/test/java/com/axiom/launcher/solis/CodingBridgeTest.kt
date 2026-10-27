@@ -51,6 +51,7 @@ class FakeGitHub {
     val branches = ArrayList<String>()
     val pulls = HashMap<Int, JSONObject>()
     var checkRuns = JSONArray()
+    val annotations = HashMap<Long, JSONArray>()
     var compareFiles = JSONArray()
     var workflows = JSONArray()
     var secrets: JSONArray? = JSONArray()
@@ -147,6 +148,7 @@ class FakeGitHub {
         }
         Regex("^$repo/compare/(.+)$").find(path)?.let { return ok(JSONObject().put("files", compareFiles)) }
         Regex("^$repo/commits/([^/]+)/check-runs$").find(path)?.let { return ok(JSONObject().put("total_count", checkRuns.length()).put("check_runs", checkRuns)) }
+        Regex("^$repo/check-runs/(\\d+)/annotations$").find(path)?.let { m -> return ok(annotations[m.groupValues[1].toLong()] ?: JSONArray()) }
         if (path == "$repo/actions/workflows") return ok(JSONObject().put("workflows", workflows))
         if (path == "$repo/actions/secrets") return secrets?.let { ok(JSONObject().put("secrets", it)) } ?: Triple(403, """{"message":"Resource not accessible by personal access token"}""", "")
         Regex("^$repo/contents/(.+)$").find(path)?.let { m ->
@@ -403,5 +405,43 @@ class CodingBridgeTest {
         }
         now += 3_600_001L
         assertEquals(JobState.SENT, bridge.delegate(null, "Later", "Do it later", threadId = "t").state)
+    }
+
+    @Test
+    fun failingChecksGoBackToClaudeWithTheDetails() = runBlocking {
+        val job = bridge.delegate(null, "Add dark mode", "Add a dark mode toggle.", threadId = null)
+        gh.comment(12, "claude[bot]", FakeGitHub.FINISHED, at = "2026-10-26T10:03:00Z")
+        gh.branches += FakeGitHub.BRANCH
+        bridge.openPullRequest(job.id)
+        gh.checkRuns = JSONArray().put(JSONObject().put("id", 77).put("name", "unit tests").put("status", "completed").put("conclusion", "failure")
+            .put("html_url", "https://github.com/octo/app/runs/77")
+            .put("output", JSONObject().put("title", "2 tests failed").put("summary", "SettingsTest > toggle persists FAILED\nExpected true").put("annotations_count", 1)))
+            .put(JSONObject().put("id", 78).put("name", "lint").put("status", "completed").put("conclusion", "success").put("output", JSONObject()))
+        gh.annotations[77] = JSONArray().put(JSONObject().put("path", "app/src/SettingsTest.kt").put("start_line", 42).put("annotation_level", "failure")
+            .put("message", "AssertionError: expected true\nat SettingsTest.kt:42"))
+        val failed = bridge.refresh(job.id)
+        assertEquals(JobState.CHECKS_FAILED, failed.state)
+        val pr = failed.pr!!
+
+        val asked = bridge.askFix(job.id)
+        assertEquals(JobState.SENT, asked.state)
+        assertEquals(pr, asked.trackOn)
+        val body = gh.comments[pr]!!.last().getString("body")
+        assertTrue(body, body.startsWith("@claude The checks on this pull request failed"))
+        assertTrue(body, body.contains("**unit tests**: 2 tests failed") && body.contains("app/src/SettingsTest.kt:42 failure: AssertionError: expected true"))
+        assertTrue(body, body.contains(FakeGitHub.BRANCH) && !body.contains("lint"))
+        assertTrue("old failures don't count as Claude's answer", bridge.refresh(job.id).state == JobState.SENT)
+
+        // Claude answers on the pull request, not the issue.
+        gh.comment(pr, "claude[bot]", FakeGitHub.WORKING, at = "2026-10-26T11:00:00Z")
+        assertEquals(JobState.WORKING, bridge.refresh(job.id).state)
+        gh.comment(pr, "claude[bot]", FakeGitHub.FINISHED, at = "2026-10-26T11:05:00Z")
+        gh.checkRuns = JSONArray().put(JSONObject().put("id", 79).put("name", "unit tests").put("status", "completed").put("conclusion", "success"))
+        assertEquals(JobState.PR_OPEN, bridge.refresh(job.id).state)
+
+        gh.checkRuns = JSONArray()
+        try { bridge.askFix(job.id); fail("nothing to fix") } catch (e: IllegalStateException) { assertTrue(e.message!!.contains("No failed checks")) }
+        val files = bridge.files(job.id)
+        assertEquals(gh.compareFiles.length(), files.size)
     }
 }

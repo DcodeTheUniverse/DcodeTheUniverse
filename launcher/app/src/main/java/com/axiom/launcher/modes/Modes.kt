@@ -57,6 +57,8 @@ data class LauncherMode(
     val homeTimezone: String? = null,
     /** Treat the network as metered: fewer parallel tasks, cheaper routing. */
     val dataSaver: Boolean = false,
+    /** Repository coding tasks go to in this mode ("owner/name"); null = the default in Settings › Coding. */
+    val codingRepo: String? = null,
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id); put("name", name); put("glyph", glyph); put("space", space.name)
@@ -65,6 +67,7 @@ data class LauncherMode(
         put("aiDailyBudgetUsd", aiDailyBudgetUsd ?: JSONObject.NULL); put("aiPrivacy", aiPrivacy.name)
         put("blockDistracting", blockDistracting); put("shortcuts", JSONArray(shortcuts))
         put("theme", theme?.id ?: JSONObject.NULL); put("homeTimezone", homeTimezone ?: JSONObject.NULL); put("dataSaver", dataSaver)
+        put("codingRepo", codingRepo ?: JSONObject.NULL)
     }
 
     companion object {
@@ -82,6 +85,7 @@ data class LauncherMode(
             theme = if (o.isNull("theme")) null else ThemeMode.entries.firstOrNull { it.id == o.optString("theme") },
             homeTimezone = if (o.isNull("homeTimezone")) null else o.optString("homeTimezone"),
             dataSaver = o.optBoolean("dataSaver"),
+            codingRepo = if (o.isNull("codingRepo")) null else o.optString("codingRepo").ifBlank { null },
         )
 
         fun defaults(): List<LauncherMode> = listOf(

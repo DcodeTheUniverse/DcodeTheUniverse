@@ -56,6 +56,12 @@ import com.axiom.launcher.solis.engine.ThreadPermissions
 import com.axiom.launcher.solis.engine.ThreadStatus
 import com.axiom.launcher.solis.engine.ToolGroup
 import com.axiom.launcher.solis.engine.ToolHost
+import com.axiom.launcher.solis.engine.Redactor
+import com.axiom.launcher.solis.engine.SystemPrompt
+import com.axiom.launcher.solis.llm.ChatMessage
+import org.json.JSONArray
+import com.axiom.launcher.solis.web.WebReader
+import com.axiom.launcher.solis.web.WebTools
 import com.axiom.launcher.solis.llm.AnthropicProvider
 import com.axiom.launcher.solis.llm.ContentPart
 import com.axiom.launcher.solis.llm.LlmProvider
@@ -82,6 +88,8 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import java.text.SimpleDateFormat
@@ -139,15 +147,27 @@ class SolisHost(private val app: Application, private val core: LauncherCore) {
     val coding = CodingBridge(
         scope = scope, github = github,
         load = { store.kvGet(CODING_KEY) }, save = { codingWrites.trySend(it) },
-        defaultRepo = { prefs.githubRepo }, online = { device().online && !prefs.offlineMode },
+        // The active mode can send coding tasks to its own repository (e.g. Work → the company repo).
+        defaultRepo = { core.modes.active.value.codingRepo ?: prefs.githubRepo }, online = { device().online && !prefs.offlineMode },
     )
     private val codingTools = CodingTools(coding)
+    val web = WebReader(http)
+    val batches = AnthropicBatches(http, { secrets.get(SecretStore.ANTHROPIC) })
+    private val _batchJobs = MutableStateFlow<List<BatchJob>>(emptyList())
+    private val batchWake = Channel<Unit>(Channel.CONFLATED)
+    private val batchPoll = kotlinx.coroutines.sync.Mutex()
+    /** Completes once saved batch jobs are back in memory (the background worker may start the process cold). */
+    private val batchesLoaded = kotlinx.coroutines.CompletableDeferred<Unit>()
+    /** Half-price batch requests and their answers (see [batchAsk]). */
+    val batchJobs: StateFlow<List<BatchJob>> = _batchJobs.asStateFlow()
+    private val webTools = WebTools(web) { device().online && !prefs.offlineMode }
+    val selfTest by lazy { SelfTest(app, core, this) }
 
     @Volatile private var cachedSettings: SolisSettings? = null
 
     val engine: SolisEngine = SolisEngine(
         scope = scope, store = store, providers = registry, memory = memory, policies = policies, ledger = ledger,
-        stats = stats, toolHost = ToolHost { tools.tools() + codingTools.tools() }, settings = ::settings, device = ::device,
+        stats = stats, toolHost = ToolHost { tools.tools() + codingTools.tools() + webTools.tools() }, settings = ::settings, device = ::device,
         deterministic = DeterministicHandler { text, space -> deterministic(text, space) },
         contextLine = { DeviceInfo.contextLine(app) },
     )
@@ -201,11 +221,43 @@ class SolisHost(private val app: Application, private val core: LauncherCore) {
         scope.launch(Dispatchers.IO) { for (json in codingWrites) runCatching { store.kvPut(CODING_KEY, json) } }
         coding.onChange = { old, new -> onCodingChange(old, new) }
         coding.start()
+        scope.launch {
+            coding.jobs.map { list -> list.any { it.active } }.distinctUntilChanged().collect { active ->
+                runCatching { com.axiom.launcher.platform.CodingPollWorker.sync(app, active) }
+            }
+        }
         val f = IntentFilter(Intent.ACTION_TIME_TICK)
         if (Build.VERSION.SDK_INT >= 33) app.registerReceiver(minuteTick, f, Context.RECEIVER_NOT_EXPORTED) else app.registerReceiver(minuteTick, f)
         scope.launch {
             engine.awaitStarted()
             refreshCatalogs(force = false)
+        }
+        // Half-price batches: restore the list, then check waiting ones (often for the first half hour, then every 10 min).
+        scope.launch(Dispatchers.IO) {
+            runCatching { store.kvGet(BATCH_KEY)?.let { JSONArray(it) }?.let { a -> (0 until a.length()).map { BatchJob.fromJson(a.getJSONObject(it)) } } }
+                .getOrNull()?.let { restored -> _batchJobs.update { cur -> cur + restored.filter { r -> cur.none { it.id == r.id } } } }
+            batchesLoaded.complete(Unit)
+            engine.awaitStarted()
+            var scheduled: Boolean? = null
+            while (true) {
+                val waiting = _batchJobs.value.filter { it.state == BatchState.SUBMITTED }
+                if (scheduled != waiting.isNotEmpty()) {
+                    scheduled = waiting.isNotEmpty()
+                    runCatching { com.axiom.launcher.platform.BatchPollWorker.sync(app, waiting.isNotEmpty()) }
+                }
+                if (waiting.isNotEmpty() && device().online) runCatching { pollBatches() }
+                val young = waiting.any { System.currentTimeMillis() - it.createdAt < 30 * 60_000L }
+                withTimeoutOrNull(if (young) 2 * 60_000L else 10 * 60_000L) { batchWake.receive() }
+            }
+        }
+        // Weekly memory housekeeping (no model call); the launcher process lives long, so check now and then.
+        scope.launch(Dispatchers.IO) {
+            engine.awaitStarted()
+            while (true) {
+                val last = store.kvGet(TIDY_KEY)?.toLongOrNull() ?: 0L
+                if (System.currentTimeMillis() - last > 7 * 86_400_000L) tidyMemory()
+                delay(6 * 3_600_000L)
+            }
         }
         // Keep running work alive in the background; brief on-device (T0) tasks never flash a notification.
         scope.launch {
@@ -230,6 +282,123 @@ class SolisHost(private val app: Application, private val core: LauncherCore) {
         onMinute()
     }
 
+    // =========================================================== half-price batches
+
+    val batchAvailable: Boolean get() = secrets.has(SecretStore.ANTHROPIC)
+
+    /** The newest Sonnet-class model by default; with [best], the most capable Anthropic model in the catalog. */
+    fun batchModel(best: Boolean = prefs.batchBest): com.axiom.launcher.solis.catalog.ModelInfo? {
+        val soon = System.currentTimeMillis() + 3 * 86_400_000L
+        val list = registry.catalog.all().filter { it.provider == ANTHROPIC && !it.isMeta && !it.isBatch && it.priceKnown && (it.expiresAt ?: Long.MAX_VALUE) > soon }
+        if (list.isEmpty()) return null
+        return if (best) list.maxByOrNull { it.qualityIndex ?: ((it.outputPrice ?: 0.0) * 1e6) }
+        else list.filter { it.id.contains("sonnet", ignoreCase = true) }.maxByOrNull { it.createdAt ?: 0L } ?: list.maxByOrNull { it.createdAt ?: 0L }
+    }
+
+    /**
+     * Sends [prompt] as a Message Batches request: half the usual price, answered within 24 hours (often within
+     * the hour). One reply, no tools, so it suits writing, explaining and planning rather than phone actions.
+     * The answer arrives as a normal Solis task.
+     */
+    suspend fun batchAsk(prompt: String): BatchJob = withContext(Dispatchers.IO) {
+        val mode = core.modes.active.value
+        when (mode.aiPrivacy) {
+            AiPrivacy.OFF -> throw BatchException("Solis is off in ${mode.name} mode")
+            AiPrivacy.LOCAL_ONLY -> throw BatchException("${mode.name} mode keeps AI on your network, and batches go to Anthropic")
+            AiPrivacy.CLOUD_ZDR -> throw BatchException("${mode.name} mode requires zero-retention endpoints; batch requests use Anthropic's standard retention")
+            AiPrivacy.CLOUD -> Unit
+        }
+        if (!device().online || prefs.offlineMode) throw BatchException("Batches need a connection")
+        if (!batchAvailable) throw BatchException("Batches need an Anthropic API key (Settings › Providers)")
+        val m = batchModel() ?: throw BatchException("No Anthropic models in the catalog yet. Refresh catalogs in Settings › Providers.")
+        val st = settings()
+        val recalled = memory.search(prompt, st.sharing.readable(mode.space, null), 6)
+        val system = SystemPrompt.build(st, mode.space) + "\n\nThis is a batch request: you can't use tools or act on the phone, and the user " +
+            "reads the answer later. Answer completely in one reply."
+        val user = "[device] ${DeviceInfo.contextLine(app)}\n\n" + MemoryService.evidenceBlock(recalled).let { if (it.isBlank()) "" else "$it\n\n" } + prompt.trim()
+        val red = if (st.redactPersonal) Redactor.redact(system, listOf(ChatMessage.user(user))) else null
+        val sentSystem = red?.system ?: system
+        val sentUser = red?.messages?.first()?.text ?: user
+        val maxOut = (m.maxOutputTokens ?: 8000).coerceAtMost(8000)
+        val est = (m.estimateCost((sentSystem.length + sentUser.length) / 4 + 50, maxOut / 2) ?: 0.0) * BATCH_DISCOUNT
+        val left = ledger.remaining(st.caps, mode.id, st.modeDailyCaps[mode.id], "batch", prefs.threadCapUsd.toDouble(), CallRole.WORKER)
+        if (est > left) throw BatchException("That could cost up to $" + "%.3f".format(est) + " and your spending caps have $" + "%.3f".format(left) + " left")
+        val id = java.util.UUID.randomUUID().toString().take(12)
+        val batchId = batches.create("axiom-$id", m.id, sentSystem, sentUser, maxOut)
+        val job = BatchJob(id, SolisEngine.titleFor(prompt), prompt.trim(), system, user, m.id, m.name, batchId, System.currentTimeMillis(), mode.space, mode.id, est)
+        putBatch(job)
+        batchWake.trySend(Unit)
+        job
+    }
+
+    /**
+     * Checks waiting batch requests; finished answers become Solis tasks and a notification. The in-app loop
+     * and the background worker can both call this, so one answer is only ever imported (and charged) once.
+     */
+    suspend fun pollBatches() = withContext(Dispatchers.IO) {
+        withTimeoutOrNull(10_000) { batchesLoaded.await() }
+        batchPoll.withLock { pollBatchesLocked() }
+    }
+
+    private suspend fun pollBatchesLocked() {
+        for (j in _batchJobs.value.filter { it.state == BatchState.SUBMITTED }) {
+            if (_batchJobs.value.firstOrNull { it.id == j.id }?.state != BatchState.SUBMITTED) continue
+            val now = System.currentTimeMillis()
+            val out = runCatching { batches.outcome(j.batchId, "axiom-${j.id}") }.getOrElse { putBatch(j.copy(checkedAt = now)); continue }
+            when (out) {
+                is BatchOutcome.Pending -> putBatch(j.copy(checkedAt = now))
+                is BatchOutcome.Succeeded -> {
+                    // Same inputs give the same placeholders, so the answer is restored exactly as it was redacted.
+                    val text = Redactor.redact(j.system, listOf(ChatMessage.user(j.user))).redaction.restore(out.text).ifBlank { "(The batch returned no text.)" }
+                    val m = registry.catalog.all().firstOrNull { it.provider == ANTHROPIC && it.id == j.model }
+                    val cost = (m?.estimateCost(out.inputTokens, out.outputTokens) ?: (j.estCostUsd / BATCH_DISCOUNT)) * BATCH_DISCOUNT
+                    val mode = core.modes.mode(j.modeId) ?: core.modes.active.value
+                    val ref = ModelRef(ANTHROPIC, j.model)
+                    val tid = engine.importFinished(j.title, j.prompt, text, j.space, j.modeId, permissionsFor(mode), ref, cost, out.inputTokens, out.outputTokens, "batch")
+                    ledger.commit(null, tid, j.modeId, CallRole.WORKER, ref.key, cost, out.inputTokens, out.outputTokens, estimated = m == null)
+                    putBatch(j.copy(state = BatchState.DONE, threadId = tid, costUsd = cost, checkedAt = now))
+                    com.axiom.launcher.platform.Notify.batch(app, j.id, "Batch answer ready", j.title)
+                }
+                is BatchOutcome.Failed -> {
+                    putBatch(j.copy(state = BatchState.FAILED, error = out.reason, checkedAt = now))
+                    com.axiom.launcher.platform.Notify.batch(app, j.id, "Batch request failed", "${j.title}: ${out.reason}")
+                }
+            }
+        }
+    }
+
+    suspend fun cancelBatch(id: String) = withContext(Dispatchers.IO) {
+        val j = _batchJobs.value.firstOrNull { it.id == id } ?: return@withContext
+        if (j.state == BatchState.SUBMITTED) runCatching { batches.cancel(j.batchId) }
+        putBatch(j.copy(state = BatchState.CANCELLED))
+    }
+
+    /** For screenshots and tests: a batch job as-is, without calling Anthropic. */
+    internal fun debugPutBatch(j: BatchJob) = putBatch(j)
+
+    fun forgetBatch(id: String) {
+        _batchJobs.update { l -> l.filterNot { it.id == id } }
+        saveBatches()
+    }
+
+    private fun putBatch(j: BatchJob) {
+        _batchJobs.update { l -> if (l.any { it.id == j.id }) l.map { if (it.id == j.id) j else it } else listOf(j) + l }
+        saveBatches()
+    }
+
+    private fun saveBatches() {
+        val json = JSONArray(_batchJobs.value.take(40).map { it.toJson() }).toString()
+        scope.launch(Dispatchers.IO) { runCatching { store.kvPut(BATCH_KEY, json) } }
+    }
+
+    /** Merges duplicate memories, clears old task notes and tags by topic; see [MemoryService.tidy]. */
+    fun tidyMemory(): MemoryService.TidyReport {
+        val live = engine.threads.value.map { it.id }.toSet()
+        val r = memory.tidy(live)
+        runCatching { store.kvPut(TIDY_KEY, System.currentTimeMillis().toString()) }
+        return r
+    }
+
     // =========================================================== settings & conditions
 
     fun settings(): SolisSettings = cachedSettings ?: buildSettings().also { cachedSettings = it }
@@ -250,6 +419,7 @@ class SolisHost(private val app: Application, private val core: LauncherCore) {
         offline = prefs.offlineMode,
         userName = prefs.userName,
         persona = if (core.effectiveTheme() == ThemeMode.NETRUNNER) NETRUNNER_PERSONA else null,
+        redactPersonal = prefs.redactPersonal,
     )
 
     fun pinnedModels(): Map<CallRole, ModelRef> = prefs.pinnedModels.mapNotNull { (k, v) ->
@@ -286,10 +456,11 @@ class SolisHost(private val app: Application, private val core: LauncherCore) {
         maxCostUsd: Double? = null,
         title: String? = null,
         dependsOn: List<String> = emptyList(),
+        independentOf: String? = null,
     ): SubmitResult {
         val mode = core.modes.active.value
         if (mode.aiPrivacy == AiPrivacy.OFF) return SubmitResult.Rejected("Solis is off in ${mode.name} mode. On-device commands still work.")
-        val r = engine.submit(text, mode.space, mode.id, threadId, parts, permissionsFor(mode, maxCostUsd), dependsOn, title, origin)
+        val r = engine.submit(text, mode.space, mode.id, threadId, parts, permissionsFor(mode, maxCostUsd), dependsOn, title, origin, independentOf)
         if (r is SubmitResult.Accepted) engine.thread(r.threadId)?.let { turnStarted["${it.id}:${it.turn}"] = SystemClock.elapsedRealtime() }
         return r
     }
@@ -659,6 +830,10 @@ class SolisHost(private val app: Application, private val core: LauncherCore) {
         const val LOCAL = "local"
         const val FOCUS_MODE = "focus"
         private const val CODING_KEY = "coding_jobs"
+        private const val TIDY_KEY = "memory_tidy_at"
+        private const val BATCH_KEY = "batch_jobs"
+        /** Message Batches cost half the usual price. */
+        const val BATCH_DISCOUNT = 0.5
         private val ROUTING_KEYS = setOf(
             "offline", "local_url", "local_tools", "local_ctx", "cap_day", "cap_month", "cap_narrator", "cap_thread",
             "unknown_price", "max_concurrent", "pinned_models", "modes", "active_mode", "share_w_p", "share_p_w",

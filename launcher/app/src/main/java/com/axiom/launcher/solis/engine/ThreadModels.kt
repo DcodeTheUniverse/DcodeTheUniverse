@@ -46,7 +46,7 @@ enum class ToolGroup(val label: String) {
     CLIPBOARD("Clipboard"),
     NOTES("Home-screen notes"),
     MEMORY("Recall and remember"),
-    WEB("Web search"),
+    WEB("Web search and reading links"),
     DELEGATE("Start other Solis tasks"),
     CODE("Coding with Claude Code (GitHub)"),
 }
@@ -139,6 +139,8 @@ data class AgentThread(
     val stepsTotal: Int = 0,
     val leaseOwner: String? = null,
     val origin: String = "user",
+    /** Vendor family this thread's models must not come from when another is available (second-opinion reviews). */
+    val independentOf: String? = null,
 ) {
     val isActive: Boolean get() = status == ThreadStatus.RUNNING || status == ThreadStatus.QUEUED || status == ThreadStatus.WAITING
 
@@ -151,7 +153,7 @@ data class AgentThread(
         put("lastResult", lastResult ?: JSONObject.NULL)
         put("pinned", JSONObject(pinned.mapKeys { it.key.name }.mapValues { it.value.key }))
         put("system", system); put("toolNames", JSONArray(toolNames)); put("stepsDone", stepsDone); put("stepsTotal", stepsTotal)
-        put("leaseOwner", leaseOwner ?: JSONObject.NULL); put("origin", origin)
+        put("leaseOwner", leaseOwner ?: JSONObject.NULL); put("origin", origin); put("independentOf", independentOf ?: JSONObject.NULL)
     }
 
     companion object {
@@ -176,7 +178,7 @@ data class AgentThread(
             system = o.optString("system"),
             toolNames = o.optJSONArray("toolNames")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
             stepsDone = o.optInt("stepsDone"), stepsTotal = o.optInt("stepsTotal"),
-            leaseOwner = o.str("leaseOwner"), origin = o.optString("origin", "user"),
+            leaseOwner = o.str("leaseOwner"), origin = o.optString("origin", "user"), independentOf = o.str("independentOf"),
         )
     }
 }
@@ -283,7 +285,9 @@ data class LiveState(
 
 /** Solis's face states. Derived from real engine state, never decorative. */
 enum class Mood(val label: String) {
-    IDLE("Idle"), LISTENING("Listening"), THINKING("Thinking"), WORKING("Working"), PAUSED("Paused"), OFFLINE("Offline"), ERROR("Error")
+    IDLE("Idle"), LISTENING("Listening"), THINKING("Thinking"), WORKING("Working"), PAUSED("Paused"), OFFLINE("Offline"), ERROR("Error"),
+    /** Reading a reply aloud (voice mode). */
+    SPEAKING("Speaking")
 }
 
 data class SolisSettings(
@@ -298,6 +302,30 @@ data class SolisSettings(
     val offline: Boolean = false,
     val userName: String = "",
     val persona: String? = null,
+    /** Replace emails, phone numbers, card numbers and IBANs with placeholders before cloud calls. */
+    val redactPersonal: Boolean = false,
+)
+
+/** What one model call sent and to whom, for the "what was sent" view. Kept in memory only. */
+data class Receipt(
+    val at: Long,
+    val role: CallRole,
+    val provider: String,
+    val model: String,
+    val local: Boolean,
+    val messages: Int,
+    val images: Int,
+    val documents: Int,
+    val tools: Int,
+    val estInputTokens: Int,
+    /** Hidden details by kind ("email" → 2). */
+    val redacted: Map<String, Int> = emptyMap(),
+    val zeroRetention: Boolean = false,
+    val inputTokens: Int? = null,
+    val outputTokens: Int? = null,
+    val cachedTokens: Int = 0,
+    val costUsd: Double? = null,
+    val ok: Boolean = true,
 )
 
 /** Persistence for everything the brain must survive process death and reboots with. */

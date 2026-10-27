@@ -36,6 +36,7 @@ import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.NotificationsActive
+import androidx.compose.material.icons.outlined.Widgets
 import androidx.compose.material.icons.outlined.Work
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -112,6 +113,7 @@ fun SettingsScreen(vm: LauncherViewModel, onClose: () -> Unit) {
             Spacer(Modifier.height(48.dp))
         }
     }
+    vm.importPreview?.let { ImportDialog(vm, it) }
 }
 
 @Composable
@@ -150,7 +152,7 @@ private fun ColumnScope.MainSettings(vm: LauncherViewModel, onClose: () -> Unit,
     NavRow("Providers & models", if (vm.providersConfigured) "OpenRouter, Anthropic, local runtime · models per role" else "Not connected yet") { open("providers") }
     NavRow("Cortex & routing", "Decision matrix, tiers, learning, policy history, routing log") { open("cortex") }
     NavRow("Budget & usage", "Spending caps and what Solis spent") { open("budget") }
-    NavRow("Privacy & tasks", "Offline mode, web, memory sharing, concurrency, auto-resume") { open("privacy") }
+    NavRow("Privacy & tasks", "Offline mode, web, hiding personal details, lock, memory sharing, concurrency") { open("privacy") }
     NavRow("Coding with Claude Code", if (vm.githubConnected) "GitHub connected · ${vm.prefs.githubRepo.ifBlank { "choose a repository" }}"
         else "Hand coding work to Claude Code on GitHub, on your Claude subscription") { open("coding") }
     NavRow("Memory inspector", "See, correct, forget, export what Solis remembers") { onClose(); vm.brainView = false; vm.overlayRequest = com.axiom.launcher.Overlay.MEMORY }
@@ -161,8 +163,17 @@ private fun ColumnScope.MainSettings(vm: LauncherViewModel, onClose: () -> Unit,
     NavRow("${vm.mode.glyph} ${vm.mode.name} mode is active", "Edit Personal, Work, Focus, Travel and your routines") { open("modes") }
 
     SectionLabel("Home screen")
+    ActionRow(Icons.Outlined.Widgets, "Widgets",
+        if (vm.widgets.isEmpty()) "Add widgets from your apps to the home screen" else "${vm.widgets.size} on home · long-press one to resize, move or remove") {
+        onClose(); vm.overlayRequest = com.axiom.launcher.Overlay.WIDGETS
+    }
     SettingSwitch("App icons", "Off keeps the home screen text-only", vm.showIcons) { vm.updateShowIcons(it) }
-    if (vm.showIcons) SettingSwitch("Monochrome icons", "Tint icons to match the theme", vm.monoIcons) { vm.updateMonoIcons(it) }
+    if (vm.showIcons) {
+        SettingSwitch("Monochrome icons", "Tint icons to match the theme", vm.monoIcons) { vm.updateMonoIcons(it) }
+        IconPackRow(vm)
+    }
+    SettingSwitch("Suggestions on home", "Leave for an event, join a call, low battery, headphones, morning brief. Worked out on the phone; nothing runs until you tap", vm.proactiveOn) { vm.updateProactive(it) }
+    SettingSwitch("Notification badges", "Unread count next to apps (needs notification access); hidden for blocked apps during Focus", vm.showBadges) { vm.updateShowBadges(it) }
     SettingSwitch("24-hour clock", null, vm.clock24) { vm.updateClock24(it) }
     SettingSwitch("Keyboard opens with app drawer", null, vm.autoKeyboard) { vm.updateAutoKeyboard(it) }
     SettingSwitch("Visual effects", "Netrunner rain, scanlines, glitches and boot sequence", vm.effects) { vm.updateEffects(it) }
@@ -221,7 +232,8 @@ private fun ColumnScope.MainSettings(vm: LauncherViewModel, onClose: () -> Unit,
     SectionLabel("Gestures")
     listOf(
         "Swipe up" to "App drawer", "Swipe down" to "Notifications", "Tap search bar" to "Search, ask Solis, > commands",
-        "Swipe right" to "Files", "Swipe left" to "Solis", "Long-press" to "These settings", "Tap the mode chip" to "Switch mode",
+        "Swipe right" to "Files", "Swipe left" to "Solis", "Long-press" to "Widgets, mode, settings",
+        "Long-press a widget" to "Resize, move, remove", "Tap the mode chip" to "Switch mode",
         "Double-tap" to "Lock", "Hold Home / assist" to "Solis (set Axiom as assist app)",
     ).forEach { (k, v) ->
         Row(Modifier.padding(vertical = 3.dp)) {
@@ -229,6 +241,8 @@ private fun ColumnScope.MainSettings(vm: LauncherViewModel, onClose: () -> Unit,
             Text(v, style = lStyle(14.sp, color = p.dim), modifier = Modifier.weight(0.55f))
         }
     }
+
+    BackupSection(vm)
 
     SectionLabel("About")
     Row(verticalAlignment = Alignment.CenterVertically) {

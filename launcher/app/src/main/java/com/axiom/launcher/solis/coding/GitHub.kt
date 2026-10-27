@@ -53,6 +53,8 @@ data class GhChecks(val total: Int, val passed: Int, val failed: Int, val pendin
     }
 }
 data class GhWorkflow(val name: String, val path: String, val state: String)
+/** A failed check run, with what GitHub shows about why (annotations are "path:line level: message"). */
+data class GhFailure(val name: String, val title: String, val summary: String, val url: String, val annotations: List<String>)
 
 /** A GitHub API failure, with a message a person can act on. */
 class GitHubException(val status: Int, message: String) : Exception(message) {
@@ -141,6 +143,30 @@ class GitHubClient(
             }
         }
         return GhChecks(runs.length(), passed, failed, pending, failedNames)
+    }
+
+    /** Failed check runs on [sha] with their output title, summary and first annotations. */
+    suspend fun failedChecks(repo: String, sha: String, maxRuns: Int = 5): List<GhFailure> {
+        val u = url("repos/${check(repo)}/commits/$sha/check-runs").newBuilder().addQueryParameter("per_page", "100").build()
+        val runs = JSONObject(get(u)).optJSONArray("check_runs") ?: JSONArray()
+        val out = ArrayList<GhFailure>()
+        for (i in 0 until runs.length()) {
+            val r = runs.getJSONObject(i)
+            if (r.optString("status") != "completed" || r.optString("conclusion") in setOf("success", "neutral", "skipped")) continue
+            if (out.size >= maxRuns) break
+            val output = r.optJSONObject("output")
+            fun text(k: String) = output?.takeUnless { it.isNull(k) }?.optString(k).orEmpty()
+            val annotations = if ((output?.optInt("annotations_count") ?: 0) > 0) runCatching {
+                val au = url("repos/${check(repo)}/check-runs/${r.getLong("id")}/annotations").newBuilder().addQueryParameter("per_page", "20").build()
+                val a = JSONArray(get(au))
+                (0 until a.length()).map { k ->
+                    val an = a.getJSONObject(k)
+                    "${an.optString("path")}:${an.optInt("start_line")} ${an.optString("annotation_level")}: ${an.optString("message").lineSequence().firstOrNull().orEmpty().take(200)}"
+                }
+            }.getOrDefault(emptyList()) else emptyList()
+            out += GhFailure(r.optString("name"), text("title"), text("summary").take(600), r.optString("html_url"), annotations)
+        }
+        return out
     }
 
     suspend fun openPull(repo: String, head: String, base: String, title: String, body: String, draft: Boolean): GhPull =

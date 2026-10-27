@@ -28,6 +28,9 @@ object Notify {
         }
     }
 
+    /** A half-price batch answer arrived (or failed); tapping it opens the task overview. */
+    fun batch(context: Context, key: String, title: String, text: String) = coding(context, "batch:$key", title, text)
+
     /** Posts (or replaces) the notification for one coding job; tapping it opens the task overview. */
     fun coding(context: Context, key: String, title: String, text: String) {
         if (!allowed(context)) return

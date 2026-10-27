@@ -1,6 +1,7 @@
 package com.axiom.launcher
 
 import android.app.Application
+import com.axiom.launcher.platform.CrashLog
 import com.axiom.launcher.platform.PerfMonitor
 import com.axiom.launcher.solis.SolisHost
 
@@ -14,6 +15,7 @@ class AxiomApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        CrashLog.install(this)
         PerfMonitor.markProcessStart()
         core.start()
         solis.start()

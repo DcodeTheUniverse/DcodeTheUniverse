@@ -239,6 +239,24 @@ class Actions(private val context: Context) {
 
     fun notificationAccessSettings(): Boolean = start(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
 
+    /** "Default digital assistant" lives under assist & voice input. */
+    fun assistantSettings(): Boolean = start(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS)) ||
+        start(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+
+    /** Axiom's own app page (permissions, battery, notifications). */
+    fun appDetails(): Boolean = start(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))
+
+    fun appNotificationSettings(): Boolean =
+        start(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)) || appDetails()
+
+    /** Shares a file from Axiom's cache through the share sheet. */
+    fun shareFile(file: java.io.File, mime: String, subject: String): Boolean {
+        val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+        val send = Intent(Intent.ACTION_SEND).setType(mime).putExtra(Intent.EXTRA_STREAM, uri).putExtra(Intent.EXTRA_SUBJECT, subject)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        return start(Intent.createChooser(send, subject).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+    }
+
     companion object {
         const val CLAUDE_PKG = "com.anthropic.claude"
 
@@ -252,6 +270,7 @@ class Actions(private val context: Context) {
             "sound" to Settings.ACTION_SOUND_SETTINGS,
             "volume" to Settings.Panel.ACTION_VOLUME,
             "battery" to Intent.ACTION_POWER_USAGE_SUMMARY,
+            "battery saver" to Settings.ACTION_BATTERY_SAVER_SETTINGS,
             "apps" to Settings.ACTION_APPLICATION_SETTINGS,
             "storage" to Settings.ACTION_INTERNAL_STORAGE_SETTINGS,
             "location" to Settings.ACTION_LOCATION_SOURCE_SETTINGS,

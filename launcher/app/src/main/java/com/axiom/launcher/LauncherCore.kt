@@ -8,6 +8,7 @@ import com.axiom.launcher.data.AppCategory
 import com.axiom.launcher.data.AppInfo
 import com.axiom.launcher.data.AppRepository
 import com.axiom.launcher.data.FileRepository
+import com.axiom.launcher.data.IconPacks
 import com.axiom.launcher.data.Note
 import com.axiom.launcher.data.Prefs
 import com.axiom.launcher.modes.LauncherMode
@@ -15,6 +16,7 @@ import com.axiom.launcher.modes.Routine
 import com.axiom.launcher.platform.DeviceConditions
 import com.axiom.launcher.platform.ProfileKind
 import com.axiom.launcher.platform.ProfileManager
+import com.axiom.launcher.platform.Widgets
 import com.axiom.launcher.solis.memory.Space
 import com.axiom.launcher.ui.theme.ThemeMode
 import kotlinx.coroutines.CoroutineScope
@@ -45,6 +47,7 @@ class LauncherCore(val app: Application) {
     /** Wired to the Solis engine by [com.axiom.launcher.solis.SolisHost]. */
     var onConditionsChanged: () -> Unit = {}
     val conditions = DeviceConditions(app) { onConditionsChanged() }
+    val widgets = Widgets(app, prefs) { profiles.profiles.value }
 
     private val _apps = MutableStateFlow<List<AppInfo>>(emptyList())
     val apps: StateFlow<List<AppInfo>> = _apps.asStateFlow()
@@ -54,6 +57,9 @@ class LauncherCore(val app: Application) {
     /** The user's chosen theme; a mode may override it (see [effectiveTheme]). */
     val theme: StateFlow<ThemeMode> = _theme.asStateFlow()
     val modes = ModeManager(prefs)
+    private val _iconRevision = MutableStateFlow(0)
+    /** Bumped when app icons must be redrawn (icon pack changed). */
+    val iconRevision: StateFlow<Int> = _iconRevision.asStateFlow()
 
     private val usage = prefs.loadUsage()
     @Volatile private var recents = prefs.loadRecents()
@@ -71,6 +77,8 @@ class LauncherCore(val app: Application) {
         conditions.start()
         reloadApps()
         appsCallback = repo.registerCallback { scope.launch { reloadApps() } }
+        widgets.releaseOrphans()
+        if (prefs.iconPack.isNotBlank()) applyIconPack(prefs.iconPack)
     }
 
     fun reloadApps() {
@@ -171,6 +179,31 @@ class LauncherCore(val app: Application) {
         prefs.notes = _notes.value
     }
 
+    /** Re-reads everything a settings import can change. */
+    fun reloadFromPrefs() {
+        _theme.value = ThemeMode.from(prefs.theme)
+        synchronized(notesLock) { _notes.value = prefs.notes }
+        modes.reload()
+        applyIconPack(prefs.iconPack)
+        reloadApps()
+    }
+
+    // ---------------- icon pack ----------------
+
+    /** Switches to the icon pack in [pkg] ("" for system icons); falls back to system icons if it can't be read. */
+    fun applyIconPack(pkg: String, onDone: (Boolean) -> Unit = {}) {
+        prefs.iconPack = pkg
+        scope.launch {
+            val pack = if (pkg.isBlank()) null else withContext(Dispatchers.IO) { IconPacks.load(app, pkg) }
+            val ok = pkg.isBlank() || pack != null
+            if (!ok) prefs.iconPack = ""
+            repo.iconPack = pack
+            repo.clearIcons()
+            _iconRevision.update { it + 1 }
+            onDone(ok)
+        }
+    }
+
     // ---------------- theme ----------------
 
     fun setTheme(mode: ThemeMode) {
@@ -220,6 +253,15 @@ class ModeManager(private val prefs: Prefs, private val clock: () -> Long = Syst
     } ?: Routine.defaults()
 
     fun mode(id: String): LauncherMode? = _modes.value.firstOrNull { it.id == id }
+
+    /** After a settings import: modes, routines and the active mode come from prefs again. */
+    @Synchronized
+    fun reload() {
+        _modes.value = loadModes()
+        _routines.value = loadRoutines()
+        clearTemporary()
+        _active.value = resolve(prefs.activeMode)
+    }
 
     @Synchronized
     fun switch(id: String): Boolean {

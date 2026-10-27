@@ -1,9 +1,11 @@
 package com.axiom.launcher.ui
 
 import android.app.Activity
+import android.appwidget.AppWidgetManager
 import android.content.Intent
 import android.speech.RecognizerIntent
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -44,6 +46,7 @@ import com.axiom.launcher.Overlay
 import com.axiom.launcher.PAGE_FILES
 import com.axiom.launcher.PAGE_HOME
 import com.axiom.launcher.PAGE_SOLIS
+import com.axiom.launcher.WidgetStep
 import com.axiom.launcher.data.AppInfo
 import com.axiom.launcher.ui.effects.BootSequence
 import com.axiom.launcher.ui.effects.MatrixRain
@@ -64,6 +67,7 @@ fun LauncherRoot(vm: LauncherViewModel, homeTicks: Int) {
     val scope = rememberCoroutineScope()
     var overlay by remember { mutableStateOf(Overlay.NONE) }
     var menuApp by remember { mutableStateOf<AppInfo?>(null) }
+    var homeMenu by remember { mutableStateOf(false) }
     val motion = motionAllowed()
 
     var voiceCallback by remember { mutableStateOf<((String) -> Unit)?>(null) }
@@ -86,6 +90,7 @@ fun LauncherRoot(vm: LauncherViewModel, homeTicks: Int) {
         if (homeTicks > 0) {
             overlay = Overlay.NONE
             menuApp = null
+            homeMenu = false
             vm.query = ""
             pager.animateScrollToPage(PAGE_HOME)
         }
@@ -105,6 +110,21 @@ fun LauncherRoot(vm: LauncherViewModel, homeTicks: Int) {
     }
     LaunchedEffect(vm.overlayRequest) {
         vm.overlayRequest?.let { overlay = it; vm.overlayRequest = null }
+    }
+    val activity = LocalActivity.current
+    val bindLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+        vm.onWidgetBound(res.resultCode == Activity.RESULT_OK)
+    }
+    LaunchedEffect(vm.widgetStep) {
+        val step = vm.widgetStep ?: return@LaunchedEffect
+        vm.startWidgetStep(step, activity)
+        if (step.kind == WidgetStep.Kind.BIND) {
+            val i = Intent(AppWidgetManager.ACTION_APPWIDGET_BIND)
+                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, step.id)
+                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_PROVIDER, step.info.provider)
+                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_PROVIDER_PROFILE, step.info.profile)
+            runCatching { bindLauncher.launch(i) }.onFailure { vm.onWidgetBound(false); vm.say("Android didn't allow adding this widget") }
+        }
     }
     LaunchedEffect(vm.toast) {
         if (vm.toast != null) { delay(2600); vm.toast = null }
@@ -128,12 +148,12 @@ fun LauncherRoot(vm: LauncherViewModel, homeTicks: Int) {
                         vm,
                         openDrawer = { overlay = Overlay.DRAWER },
                         openSearch = { overlay = Overlay.SEARCH },
-                        openSettings = { overlay = Overlay.SETTINGS },
+                        openHomeMenu = { homeMenu = true },
                         openTasks = { overlay = Overlay.TASKS },
                         onAppMenu = { menuApp = it },
                         goTo = { scope.launch { pager.animateScrollToPage(it) } },
                     )
-                    else -> SolisPage(
+                    else -> if (vm.locked) LockedPanel(vm, "Solis") else SolisPage(
                         vm, active = pager.currentPage == PAGE_SOLIS,
                         openTasks = { overlay = Overlay.TASKS },
                         openMemory = { overlay = Overlay.MEMORY },
@@ -156,20 +176,26 @@ fun LauncherRoot(vm: LauncherViewModel, homeTicks: Int) {
                 enter = slideInVertically(tween(if (motion) 260 else 0)) { it / 4 } + fadeIn(),
                 exit = slideOutVertically(tween(if (motion) 200 else 0)) { it / 4 } + fadeOut(),
             ) {
-                SettingsScreen(vm, onClose = { overlay = Overlay.NONE; vm.settingsSection = null })
+                if (vm.locked) LockedPanel(vm, "Settings") else SettingsScreen(vm, onClose = { overlay = Overlay.NONE; vm.settingsSection = null })
             }
             AnimatedVisibility(overlay == Overlay.TASKS, enter = fadeIn(tween(150)), exit = fadeOut(tween(150))) {
-                TasksScreen(vm, onClose = { overlay = Overlay.NONE }) { id ->
+                if (vm.locked) LockedPanel(vm, "Tasks") else TasksScreen(vm, onClose = { overlay = Overlay.NONE }) { id ->
                     vm.selectedThread = id
                     overlay = Overlay.NONE
                     scope.launch { pager.animateScrollToPage(PAGE_SOLIS) }
                 }
             }
             AnimatedVisibility(overlay == Overlay.MEMORY, enter = fadeIn(tween(150)), exit = fadeOut(tween(150))) {
-                MemoryScreen(vm, onClose = { overlay = Overlay.NONE })
+                if (vm.locked) LockedPanel(vm, "Memory") else MemoryScreen(vm, onClose = { overlay = Overlay.NONE })
+            }
+            AnimatedVisibility(overlay == Overlay.WIDGETS, enter = fadeIn(tween(150)), exit = fadeOut(tween(150))) {
+                WidgetPicker(vm, onClose = { overlay = Overlay.NONE })
             }
 
             menuApp?.let { AppMenu(vm, it) { menuApp = null } }
+            vm.widgetMenu?.let { WidgetMenu(vm, it) { vm.widgetMenu = null } }
+            vm.diffJob?.let { DiffViewer(vm, it, onClose = { vm.diffJob = null }) }
+            if (homeMenu) HomeMenu(vm, openWidgets = { overlay = Overlay.WIDGETS }, openSettings = { overlay = Overlay.SETTINGS }) { homeMenu = false }
             vm.focusBlocked?.let { FocusBlockedDialog(vm, it) }
             vm.pausedApp?.let { PausedAppDialog(vm, it) }
             vm.terminalOutput?.let { TerminalDialog(it) { vm.terminalOutput = null } }

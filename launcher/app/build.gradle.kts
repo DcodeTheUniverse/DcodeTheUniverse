@@ -12,8 +12,8 @@ android {
         applicationId = "com.axiom.launcher"
         minSdk = 30
         targetSdk = 36
-        versionCode = 3
-        versionName = "2.1.0"
+        versionCode = 4
+        versionName = "2.2.0"
     }
 
     // Release key is kept out of git. Point AXIOM_KEYSTORE at it (or drop it in keystore/);
@@ -52,6 +52,8 @@ android {
             it.systemProperty("roborazzi.test.record", "true")
             it.systemProperty("robolectric.graphicsMode", "NATIVE")
             it.maxHeapSize = "3g"
+            // Robolectric keeps a lot per JVM; a fresh JVM every few classes keeps the whole suite in memory bounds.
+            it.forkEvery = 6
         }
     }
     packaging {
@@ -83,6 +85,7 @@ dependencies {
 
     implementation("com.anthropic:anthropic-java:3.3.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("androidx.work:work-runtime-ktx:2.10.1")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")

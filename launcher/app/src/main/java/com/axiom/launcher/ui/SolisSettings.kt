@@ -27,6 +27,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
@@ -353,6 +354,22 @@ fun BudgetSettings(vm: LauncherViewModel) {
 
     Text("Every model call counts — planning, background updates, retries and verification included. Calls that would cross a cap are refused before they're made.",
         style = lStyle(13.sp, color = p.dim))
+    SectionLabel("Half-price batches")
+    Text(
+        if (vm.batchAvailable) "For questions that can wait: Solis sends them through Anthropic's Message Batches API at half the usual price. " +
+            "Answers arrive as tasks within 24 hours, usually within the hour. A batch answer is one reply: no tools or phone actions. " +
+            "Turn it on per message with the “Half-price batch” chip on the Solis page."
+        else "Add an Anthropic API key (Providers & models) to send questions that can wait at half price through Anthropic's Message Batches API.",
+        style = lStyle(13.sp, color = p.dim),
+    )
+    if (vm.batchAvailable) {
+        val model = remember(rev, vm.batchBest, vm.catalogRevision) { vm.solis.batchModel(vm.batchBest)?.name ?: "no Anthropic models in the catalog yet" }
+        Row(Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Chip("Newest Sonnet", selected = !vm.batchBest) { vm.updateBatchBest(false) }
+            Chip("Most capable", selected = vm.batchBest) { vm.updateBatchBest(true) }
+        }
+        Text("Batches use $model.", style = lStyle(12.sp, color = p.dim))
+    }
     SectionLabel("Spent")
     Text("Today ${usd(summary.today)} of ${usd(st.caps.dailyUsd)} · ${summary.callsToday} calls", style = lStyle(15.sp))
     Progress((summary.today / st.caps.dailyUsd).toFloat(), Modifier.padding(vertical = 6.dp))
@@ -409,6 +426,21 @@ fun PrivacySettings(vm: LauncherViewModel) {
         style = lStyle(12.sp, color = p.dim),
     )
 
+    SectionLabel("Personal details")
+    val redact = remember(rev) { vm.prefs.redactPersonal }
+    SettingSwitch(
+        "Hide personal details from cloud models",
+        "Emails, phone numbers, card numbers and IBANs are sent as placeholders like ⟦EMAIL_1⟧ and filled back in on the phone, " +
+            "so drafts and calls still use the real ones. Images and files are sent as they are. Applies to tasks started afterwards.",
+        redact,
+    ) { v -> vm.editSolisPrefs { it.redactPersonal = v } }
+    Text("Each task's receipts (in the task's menu) show which model got what, and the exact text of the last request.",
+        style = lStyle(12.sp, color = p.dim))
+
+    SectionLabel("Lock")
+    SettingSwitch("Lock Solis", "Fingerprint, face or screen lock before Solis, memory, tasks or settings open. Locks again when the screen " +
+        "turns off or after five minutes away. Home and apps stay as they are.", vm.bioLock) { vm.updateBioLock(it) }
+
     SectionLabel("Memory sharing")
     SettingSwitch("Work tasks may read personal memory", null, sharing.first) { v -> vm.editSolisPrefs { it.workReadsPersonal = v } }
     SettingSwitch("Personal tasks may read work memory", null, sharing.second) { v -> vm.editSolisPrefs { it.personalReadsWork = v } }
@@ -432,7 +464,8 @@ fun DiagnosticsSettings(vm: LauncherViewModel) {
     var refresh by remember { mutableIntStateOf(0) }
     val perf by produceState("…", refresh) { value = withContext(Dispatchers.IO) { PerfMonitor.report(ctx) } }
     val diag by produceState("…", refresh) { value = withContext(Dispatchers.IO) { vm.solis.diagnostics() } }
-    Text("Measured on this phone while Axiom runs. Nothing here leaves the device unless you copy it.", style = lStyle(13.sp, color = p.dim))
+    Text("Measured on this phone while Axiom runs. Nothing here leaves the device unless you share it.", style = lStyle(13.sp, color = p.dim))
+    SelfTestSection(vm)
     SectionLabel("Performance")
     Text(perf, style = lStyle(12.sp).copy(fontFamily = FontFamily.Monospace, lineHeight = 17.sp))
     SectionLabel("Solis")
@@ -452,4 +485,33 @@ fun DiagnosticsSettings(vm: LauncherViewModel) {
     Spacer(Modifier.height(8.dp))
     Text("Background tasks keep running through a foreground service with a visible notification; it stops as soon as nothing is active.",
         style = lStyle(12.sp, color = p.dim))
+}
+
+/** One tap checks everything Axiom depends on; each problem links to where it is fixed. */
+@Composable
+private fun SelfTestSection(vm: LauncherViewModel) {
+    val p = LocalPalette.current
+    SectionLabel("Self-test")
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Chip(if (vm.selfTestRunning) "Checking…" else if (vm.selfTest == null) "Run self-test" else "Run again", selected = true) { vm.runSelfTest() }
+        Chip("Share report") { vm.shareDiagnostics() }
+    }
+    Text("The report has app and phone versions, these checks, performance, crashes and why Android last stopped Axiom. " +
+        "It never includes keys, memories, conversations, notifications or contacts.", style = lStyle(12.sp, color = p.dim), modifier = Modifier.padding(top = 6.dp))
+    val checks = vm.selfTest ?: return
+    checks.groupBy { it.area }.forEach { (area, list) ->
+        Text(area, style = lStyle(13.sp, FontWeight.Medium), modifier = Modifier.padding(top = 10.dp))
+        list.forEach { c ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(com.axiom.launcher.solis.SelfTest.mark(c.status) + "  ", style = lStyle(14.sp, FontWeight.Bold,
+                    when (c.status) {
+                        com.axiom.launcher.solis.CheckStatus.FAIL -> p.danger
+                        com.axiom.launcher.solis.CheckStatus.WARN -> p.accent
+                        else -> p.dim
+                    }))
+                Text(c.text, style = lStyle(13.sp), modifier = Modifier.weight(1f))
+                c.fix?.let { f -> Chip(if (f == com.axiom.launcher.solis.CheckFix.SHARE_REPORT) "Share" else "Fix") { vm.fix(f) } }
+            }
+        }
+    }
 }

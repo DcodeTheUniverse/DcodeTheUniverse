@@ -86,7 +86,8 @@ fun TasksScreen(vm: LauncherViewModel, onClose: () -> Unit, openThread: (String)
         val coding = remember(vm.codingJobs) {
             vm.codingJobs.sortedWith(compareBy<com.axiom.launcher.solis.coding.CodingJob>({ !it.mergeRequested }, { !it.active }).thenByDescending { it.changedAt })
         }
-        if (groups.isEmpty() && coding.isEmpty()) {
+        val batches = vm.batchJobs
+        if (groups.isEmpty() && coding.isEmpty() && batches.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
                 Text("No tasks yet. Ask Solis anything from the search bar or the Solis page.", style = lStyle(14.sp, color = p.dim))
             }
@@ -96,6 +97,10 @@ fun TasksScreen(vm: LauncherViewModel, onClose: () -> Unit, openThread: (String)
             if (coding.isNotEmpty()) {
                 item(key = "h:coding") { SectionLabel("Claude Code · ${coding.count { it.active }} active") }
                 items(coding, key = { "code:" + it.id }) { j -> CodingJobRow(vm, j) }
+            }
+            if (batches.isNotEmpty()) {
+                item(key = "h:batch") { SectionLabel("Half-price batches · ${batches.count { it.state == com.axiom.launcher.solis.BatchState.SUBMITTED }} waiting") }
+                items(batches, key = { "batch:" + it.id }) { j -> BatchRow(vm, j) { id -> openThread(id) } }
             }
             groups.forEach { (label, list) ->
                 item(key = "h:$label") { SectionLabel("$label · ${list.size}") }
@@ -136,6 +141,28 @@ private fun TaskRow(vm: LauncherViewModel, t: AgentThread, open: () -> Unit) {
                 else -> Unit
             }
             if (t.isActive || t.status == ThreadStatus.PAUSED) Chip("Cancel") { vm.cancelThread(t.id) } else Chip("Delete") { vm.deleteThread(t.id) }
+        }
+    }
+}
+
+@Composable
+private fun BatchRow(vm: LauncherViewModel, j: com.axiom.launcher.solis.BatchJob, open: (String) -> Unit) {
+    val p = LocalPalette.current
+    val time = remember(j.createdAt) { SimpleDateFormat("EEE HH:mm", Locale.getDefault()).format(Date(j.createdAt)) }
+    val waiting = j.state == com.axiom.launcher.solis.BatchState.SUBMITTED
+    Column(Modifier.fillMaxWidth().padding(vertical = 10.dp, horizontal = 4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text((if (waiting) "◌" else if (j.threadId != null) "✓" else "✗") + "  ", style = lStyle(14.sp, FontWeight.Bold, p.accent))
+            Text(j.title, style = lStyle(16.sp), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Text(time, style = lStyle(11.sp, color = p.dim))
+        }
+        Text(
+            listOfNotNull(j.state.label, j.modelName, j.costUsd?.let { usd(it) } ?: "≤ ${usd(j.estCostUsd)}", j.error).joinToString(" · "),
+            style = lStyle(12.sp, color = if (j.error != null) p.danger else p.dim), maxLines = 2, overflow = TextOverflow.Ellipsis,
+        )
+        Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            j.threadId?.takeIf { id -> vm.threads.any { it.id == id } }?.let { id -> Chip("Open answer", selected = true) { open(id) } }
+            if (waiting) { Chip("Check now") { vm.checkBatches() }; Chip("Cancel") { vm.cancelBatch(j.id) } } else Chip("Remove") { vm.forgetBatch(j.id) }
         }
     }
 }

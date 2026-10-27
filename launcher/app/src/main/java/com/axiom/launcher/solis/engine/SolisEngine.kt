@@ -197,6 +197,7 @@ class SolisEngine(
         dependsOn: List<String> = emptyList(),
         title: String? = null,
         origin: String = "user",
+        independentOf: String? = null,
     ): SubmitResult {
         val clean = text.trim()
         if (clean.isEmpty() && parts.isEmpty()) return SubmitResult.Rejected("Nothing to do")
@@ -231,6 +232,7 @@ class SolisEngine(
             system = SystemPrompt.build(st, space, allowedTools),
             toolNames = allowedTools,
             origin = origin,
+            independentOf = independentOf,
         )
         if (parts.isNotEmpty()) attachments["$id:1"] = parts
         // A new thread has no stored history: start its transcript empty instead of querying the store here.
@@ -241,6 +243,32 @@ class SolisEngine(
         addEntry(id, 1, EntryKind.USER, clean.ifEmpty { "(attachment)" })
         kick.trySend(Unit)
         return SubmitResult.Accepted(id)
+    }
+
+    /**
+     * Adds a finished task whose answer came from elsewhere (a half-price batch request), so it reads and takes
+     * follow-ups like any other thread.
+     */
+    fun importFinished(
+        title: String, prompt: String, result: String, space: Space, modeId: String, permissions: ThreadPermissions,
+        model: ModelRef, costUsd: Double, inputTokens: Int, outputTokens: Int, origin: String,
+    ): String {
+        val now = clock()
+        val id = UUID.randomUUID().toString().take(12)
+        val allowedTools = (toolHost.tools() + engineTools()).filter { it.group in permissions.tools }.map { it.name }
+        val t = AgentThread(
+            id = id, title = title, space = space, modeId = modeId, status = ThreadStatus.DONE, createdAt = now, updatedAt = now,
+            permissions = permissions, statusText = "Done", lastResult = result, system = SystemPrompt.build(settings(), space, allowedTools),
+            toolNames = allowedTools, origin = origin, leaseOwner = engineId, models = mapOf(CallRole.WORKER.name to model.key),
+            usage = ThreadUsage().plus(CallRole.WORKER, inputTokens, outputTokens, costUsd),
+        )
+        transcripts.putIfAbsent(id, MutableStateFlow(emptyList()))
+        seqs.putIfAbsent(id, AtomicLong(0))
+        _threads.update { listOf(t) + it }
+        persist { store.upsertThread(t) }
+        addEntry(id, 1, EntryKind.USER, prompt)
+        addEntry(id, 1, EntryKind.ASSISTANT, result)
+        return id
     }
 
     fun pause(id: String) {
@@ -277,6 +305,8 @@ class SolisEngine(
         _threads.update { list -> list.filterNot { it.id == id } }
         transcripts.remove(id)
         narrator.forget(id)
+        receiptLog.remove(id)
+        lastRequests.remove(id)
         persist { store.deleteThread(id) }
         scope.launch(io) { memory.dropThread(id) }
         recomputeMood()
@@ -785,7 +815,8 @@ class SolisEngine(
         val q = RouteQuery(
             role = role, tier = tier, needs = needs.copy(minContext = inTok + expectedOut), estInputTokens = inTok,
             estOutputTokens = expectedOut, privacy = t.permissions.privacy, budgetRemainingUsd = remaining, exclude = exclude,
-            avoidFamily = avoidFamily, pinned = t.pinned[role] ?: st.pinned[role] ?: if (role == CallRole.COMBINER) st.pinned[CallRole.COORDINATOR] else null,
+            avoidFamily = avoidFamily, excludeFamily = t.independentOf.takeIf { role != CallRole.NARRATOR },
+            pinned = t.pinned[role] ?: st.pinned[role] ?: if (role == CallRole.COMBINER) st.pinned[CallRole.COORDINATOR] else null,
             trialKey = t.id, allowUnknownPrice = st.allowUnknownPrice,
         )
         return router.route(q, providers.catalog.all(), providers.usable(dev.online, st.offline), policies.snapshot(), providers.priors())
@@ -803,10 +834,12 @@ class SolisEngine(
         val outCap = (m.maxOutputTokens ?: maxOut).coerceAtMost(maxOut).coerceAtLeast(256)
         val est = m.estimateCost(inTok, outCap) ?: 0.0
         val reservation = ledger.reserve(est, st.caps, t.modeId, st.modeDailyCaps[t.modeId], t.id, t.permissions.maxCostUsd, role)
+        // Personal details stay on the phone when the user asked for that; local runtimes see everything.
+        val red = if (st.redactPersonal && !m.isLocal) Redactor.redact(system, messages) else null
         val req = ChatRequest(
             model = m.id,
-            system = system,
-            messages = messages.toList(),
+            system = red?.system ?: system,
+            messages = red?.messages ?: messages.toList(),
             tools = tools.map { it.spec },
             maxOutputTokens = outCap,
             effort = decision.effort,
@@ -821,6 +854,14 @@ class SolisEngine(
             cachePrefix = role == CallRole.WORKER,
         )
         val started = clock()
+        val receipt = Receipt(
+            at = started, role = role, provider = provider.displayName, model = m.id, local = m.isLocal, messages = req.messages.size,
+            images = req.messages.sumOf { msg -> msg.parts.count { it is ContentPart.Image } },
+            documents = req.messages.sumOf { msg -> msg.parts.count { it is ContentPart.Document } },
+            tools = req.tools.size, estInputTokens = inTok, redacted = red?.redaction?.counts.orEmpty(), zeroRetention = req.privacy.zeroDataRetention,
+        )
+        recordReceipt(t.id, receipt, req)
+        val restore: (String) -> String = { s -> red?.redaction?.restore(s) ?: s }
         var firstTokenAt = 0L
         val text = StringBuilder()
         val calls = ArrayList<ToolCall>()
@@ -835,10 +876,10 @@ class SolisEngine(
                         is LlmEvent.TextDelta -> {
                             if (firstTokenAt == 0L) firstTokenAt = clock()
                             text.append(ev.text)
-                            if (streamToUser) publishLive(t.id, LiveState(LivePhase.STREAMING, text.toString(), m.name, liveStep))
+                            if (streamToUser) publishLive(t.id, LiveState(LivePhase.STREAMING, restore(text.toString()), m.name, liveStep))
                         }
                         is LlmEvent.ReasoningDelta -> if (firstTokenAt == 0L) publishLive(t.id, LiveState(LivePhase.THINKING, model = m.name, step = liveStep))
-                        is LlmEvent.ToolCallReady -> calls += ev.call
+                        is LlmEvent.ToolCallReady -> calls += ev.call.copy(argumentsJson = restore(ev.call.argumentsJson))
                         is LlmEvent.Usage -> usage = ev
                         is LlmEvent.Finish -> finish = ev
                     }
@@ -850,6 +891,7 @@ class SolisEngine(
             val cost = u?.costUsd ?: m.estimateCost(inT, outT, u?.cachedInputTokens ?: 0, u?.cacheWriteTokens ?: 0) ?: 0.0
             ledger.commit(reservation, t.id, t.modeId, role, m.ref.key, cost, inT, outT, estimated = u?.costUsd == null)
             committed = true
+            finishReceipt(t.id, receipt.copy(inputTokens = inT, outputTokens = outT, cachedTokens = u?.cachedInputTokens ?: 0, costUsd = cost))
             update(t.id) { it.copy(usage = it.usage.plus(role, inT, outT, cost, u?.cachedInputTokens ?: 0)) }
             val f = finish
             recordOutcome(t, role, tier, m.ref, ok = f?.reason != FinishReason.REFUSAL, latency = clock() - started, cost = cost, inT = inT, outT = outT,
@@ -857,13 +899,15 @@ class SolisEngine(
             if (f?.reason == FinishReason.REFUSAL || f?.reason == FinishReason.CONTENT_FILTER) {
                 throw ProviderException(ErrorKind.MODERATION, "${m.name} declined this request")
             }
-            return CallResult(text.toString(), calls, f?.reason ?: FinishReason.STOP, f?.native)
+            return CallResult(restore(text.toString()), calls, f?.reason ?: FinishReason.STOP, f?.native)
         } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            finishReceipt(t.id, receipt.copy(ok = false))
             if (!committed) ledger.release(reservation)
             recordOutcome(t, role, tier, m.ref, ok = false, latency = clock() - started, cost = 0.0, inT = 0, outT = 0, error = "TIMEOUT", decision = decision)
             throw ProviderException(ErrorKind.TIMEOUT, "${m.name} took too long")
         } catch (e: ProviderException) {
             if (!committed) {
+                finishReceipt(t.id, receipt.copy(ok = false))
                 ledger.release(reservation)
                 recordOutcome(t, role, tier, m.ref, ok = false, latency = clock() - started, cost = 0.0, inT = 0, outT = 0, error = e.kind.name, decision = decision)
             }
@@ -876,6 +920,47 @@ class SolisEngine(
     }
 
     private class CallResult(val text: String, val calls: List<ToolCall>, val finish: FinishReason, val native: NativeState?)
+
+    // ---------------- receipts ("what was sent") ----------------
+
+    private val receiptLog = java.util.concurrent.ConcurrentHashMap<String, ArrayDeque<Receipt>>()
+    private val lastRequests = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /** The model calls a thread made (newest first), from this run of the app; nothing is written to disk. */
+    fun receipts(threadId: String): List<Receipt> = receiptLog[threadId]?.let { q -> synchronized(q) { q.toList().asReversed() } }.orEmpty()
+
+    /** Exactly what the thread's latest call sent (after hiding personal details), for the user to read. */
+    fun lastRequest(threadId: String): String? = lastRequests[threadId]
+
+    private fun recordReceipt(threadId: String, r: Receipt, req: ChatRequest) {
+        val q = receiptLog.getOrPut(threadId) { ArrayDeque() }
+        synchronized(q) { q.addLast(r); while (q.size > MAX_RECEIPTS) q.removeFirst() }
+        lastRequests[threadId] = renderRequest(r, req)
+    }
+
+    private fun finishReceipt(threadId: String, r: Receipt) {
+        val q = receiptLog[threadId] ?: return
+        synchronized(q) { val i = q.indexOfLast { it.at == r.at && it.role == r.role }; if (i >= 0) q[i] = r }
+    }
+
+    private fun renderRequest(r: Receipt, req: ChatRequest): String = buildString {
+        append("To ").append(r.provider).append(" · ").append(req.model).append(" · ").append(r.role.name.lowercase())
+        if (req.privacy.zeroDataRetention) append(" · zero data retention")
+        append("\n\n== system ==\n").append(req.system)
+        if (req.tools.isNotEmpty()) append("\n\n== tools offered ==\n").append(req.tools.joinToString { it.name })
+        for (msg in req.messages) {
+            append("\n\n== ").append(msg.role.name.lowercase()).append(msg.toolName?.let { " · $it" } ?: "").append(" ==\n")
+            msg.parts.forEach { p ->
+                when (p) {
+                    is ContentPart.Text -> append(p.text)
+                    is ContentPart.Image -> append("[image, ").append(p.mediaType).append(", ").append(p.base64.length * 3 / 4 / 1024).append(" KB]")
+                    is ContentPart.Document -> append("[file ").append(p.name).append(", ").append(p.base64.length * 3 / 4 / 1024).append(" KB]")
+                }
+                append('\n')
+            }
+            msg.toolCalls.forEach { c -> append("→ ").append(c.name).append(c.argumentsJson).append('\n') }
+        }
+    }.let { if (it.length > MAX_REQUEST_CHARS) it.take(MAX_REQUEST_CHARS) + "\n…(cut here; ${it.length - MAX_REQUEST_CHARS} more characters)" else it }
 
     /** Tool loop for a worker. Returns (text, tools used). */
     private suspend fun agentLoop(
@@ -1002,7 +1087,8 @@ class SolisEngine(
 
     /** Tools the brain itself provides: memory and delegation. */
     private fun engineTools(): List<SolisTool> = listOf(
-        SolisTool("recall", "Search Solis memory for facts, preferences, decisions and past results relevant to a query.",
+        SolisTool("recall", "Search Solis memory for facts, preferences, decisions and past results relevant to a query. It matches by " +
+            "topic as well as words: include the key words plus a synonym or the category (e.g. 'food allergy diet').",
             ToolGroup.MEMORY, SideEffect.NONE, mapOf("query" to SolisTool.str("What to look for")), listOf("query")) { a, ctx ->
             val scopes = settings().sharing.readable(ctx.space, ctx.threadId)
             val hits = memory.search(a.getString("query"), scopes, 8, by = ctx.threadId)
@@ -1015,11 +1101,14 @@ class SolisEngine(
                 "kind" to SolisTool.enumOf(listOf("fact", "preference", "decision", "note"), "What kind of memory"),
                 "confidence" to mapOf("type" to "number", "description" to "0..1, how sure"),
                 "caveat" to SolisTool.str("Optional uncertainty, e.g. 'inferred from a calendar entry'"),
+                "tags" to mapOf("type" to "array", "items" to mapOf("type" to "string"),
+                    "description" to "2-5 lowercase keywords so it can be found later in other words: synonyms and the category, e.g. [\"peanut\", \"allergy\", \"food\"]"),
             ), listOf("fact")) { a, ctx ->
             val kind = runCatching { MemoryKind.valueOf(a.optString("kind", "fact").uppercase()) }.getOrDefault(MemoryKind.FACT)
             val scope = if (ctx.permissions.memoryWriteSpace) Scope(ctx.space) else Scope(ctx.space, ctx.threadId)
+            val tags = a.optJSONArray("tags")?.let { arr -> (0 until arr.length()).mapNotNull { arr.optString(it).takeIf { t -> t.isNotBlank() } } }.orEmpty()
             val m = memory.remember(a.getString("fact"), kind, scope, "solis:${ctx.threadId}",
-                a.optDouble("confidence", 0.8).let { if (it.isNaN()) 0.8 else it.coerceIn(0.0, 1.0) }, a.optString("caveat").ifBlank { null })
+                a.optDouble("confidence", 0.8).let { if (it.isNaN()) 0.8 else it.coerceIn(0.0, 1.0) }, a.optString("caveat").ifBlank { null }, tags)
             ToolResult("Saved to ${scope.label()} memory (id ${m.id.take(8)}, v${m.version}).", true, "remembered (${scope.label()})")
         },
         SolisTool("update_memory", "Correct a memory by id (from recall). Fails if someone changed it since you read it.",
@@ -1223,6 +1312,8 @@ class SolisEngine(
     }
 
     companion object {
+        private const val MAX_RECEIPTS = 30
+        private const val MAX_REQUEST_CHARS = 150_000
         const val MAX_TOOL_ROUNDS = 10
         const val STEP_TIMEOUT_MS = 6 * 60_000L
         private val WORK_PHASES = setOf(LivePhase.TOOLS, LivePhase.STREAMING, LivePhase.VERIFYING, LivePhase.COMBINING)
@@ -1268,6 +1359,7 @@ object SystemPrompt {
         append("\n\nThis task runs in the user's ${space.name.lowercase()} space")
         append(if (space == Space.WORK) "; keep work context separate from personal life." else ".")
         if (st.userName.isNotBlank()) append("\nThe user's name is ${st.userName.trim()}.")
+        if (st.redactPersonal) append("\nPersonal details such as emails, phone numbers and card numbers may appear as placeholders like ⟦EMAIL_1⟧. Use them exactly as written, including in tool calls; the phone fills in the real values.")
         st.persona?.let { append("\n\n").append(it) }
     }
 }

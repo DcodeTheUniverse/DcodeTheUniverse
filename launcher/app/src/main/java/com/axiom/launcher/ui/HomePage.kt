@@ -23,6 +23,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -96,7 +97,7 @@ fun HomePage(
     vm: LauncherViewModel,
     openDrawer: () -> Unit,
     openSearch: () -> Unit,
-    openSettings: () -> Unit,
+    openHomeMenu: () -> Unit,
     openTasks: () -> Unit,
     onAppMenu: (AppInfo) -> Unit,
     goTo: (Int) -> Unit,
@@ -105,6 +106,9 @@ fun HomePage(
     val haptic = LocalHapticFeedback.current
     val clock = rememberClock(seconds = Netrunner)
     var noteOpen by remember { mutableStateOf<Note?>(null) }
+    // The glance and suggestion cards follow the clock (an event starting, a call to join).
+    val minute = clock.longValue / 60_000
+    LaunchedEffect(minute) { vm.refreshGlance() }
 
     Column(
         Modifier
@@ -122,7 +126,7 @@ fun HomePage(
             .pointerInput(Unit) {
                 detectTapGestures(
                     onDoubleTap = { vm.lockScreen() },
-                    onLongPress = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); openSettings() },
+                    onLongPress = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); openHomeMenu() },
                 )
             }
             .statusBarsPadding()
@@ -149,9 +153,13 @@ fun HomePage(
         Greeting(vm)
         Glance(vm)
 
+        ProactiveCards(vm)
         RoutineAsks(vm)
-        TaskCards(vm, openTasks) { id -> vm.selectedThread = id; goTo(PAGE_SOLIS) }
-        homeCodingJobs(vm.codingJobs).forEach { j -> CodingCard(vm, j, openTasks) }
+        // With the lock on, task results and coding work stay off the home screen until unlocked.
+        if (!vm.locked) {
+            TaskCards(vm, openTasks) { id -> vm.selectedThread = id; goTo(PAGE_SOLIS) }
+            homeCodingJobs(vm.codingJobs).forEach { j -> CodingCard(vm, j, openTasks) }
+        }
 
         val shownNotes = (vm.notes.filter { it.pinned } + vm.notes.filter { !it.pinned }).take(3)
         if (shownNotes.isNotEmpty()) {
@@ -166,7 +174,7 @@ fun HomePage(
             }
         }
 
-        Spacer(Modifier.weight(1f))
+        if (vm.widgets.isEmpty()) Spacer(Modifier.weight(1f)) else WidgetArea(vm, Modifier.weight(1f))
 
         WorkPausedBanner(vm)
 
@@ -310,6 +318,27 @@ private fun Glance(vm: LauncherViewModel) {
             it, style = lStyle(14.sp, color = p.accent), maxLines = 1,
             modifier = Modifier.padding(top = 4.dp).let { m -> if (vm.mode.notifications == NotifPresentation.COUNT) m else m.clickable { digest() } },
         )
+    }
+}
+
+/** Suggestions from local rules; nothing runs until a button is tapped. */
+@Composable
+private fun ProactiveCards(vm: LauncherViewModel) {
+    val p = LocalPalette.current
+    vm.proactive.forEach { c ->
+        Row(
+            Modifier.padding(top = 10.dp).fillMaxWidth().clip(RoundedCornerShape(if (Netrunner) 2.dp else 12.dp)).background(p.surface)
+                .padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(if (Netrunner) "> ${c.title.lowercase()}" else c.title, style = lStyle(14.sp, FontWeight.Medium), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(c.detail, style = lStyle(12.sp, color = p.dim), maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            Spacer(Modifier.width(8.dp))
+            Chip(c.actionLabel, selected = true) { vm.runCard(c) }
+            IconBtn(Icons.Outlined.Close, "Dismiss for today") { vm.dismissCard(c) }
+        }
     }
 }
 

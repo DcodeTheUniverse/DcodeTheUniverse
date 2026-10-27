@@ -123,6 +123,7 @@ fun MemoryScreen(vm: LauncherViewModel, onClose: () -> Unit) {
                     Chip("Add", selected = adding) { adding = !adding }
                     Chip("Export") { exportDoc.launch("axiom-memory-${SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())}.json") }
                     Chip("Import") { importDoc.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }
+                    Chip("Tidy up") { vm.tidyMemory() }
                 }
                 if (adding) AddMemory(vm) { adding = false }
                 InputBar(query, { query = it }, "Search memory", onSubmit = {})

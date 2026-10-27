@@ -25,6 +25,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
@@ -75,7 +77,7 @@ fun shapeFor(mode: ThemeMode): Shape = if (mode == ThemeMode.NETRUNNER) RoundedC
 @Composable
 fun AppIcon(vm: LauncherViewModel, app: AppInfo, size: Dp) {
     val px = with(LocalDensity.current) { size.roundToPx() }
-    val bmp by produceState<android.graphics.Bitmap?>(null, app.key, px) {
+    val bmp by produceState<android.graphics.Bitmap?>(null, app.key, px, vm.iconRevision) {
         value = withContext(Dispatchers.IO) { vm.icon(app, px) }
     }
     val p = LocalPalette.current
@@ -137,6 +139,16 @@ fun AppRow(
         if (vm.focusActive && vm.isDistracting(app)) {
             Spacer(Modifier.width(8.dp))
             Text(if (Netrunner) "[locked]" else "· focus", style = lStyle(11.sp, color = p.dim))
+        }
+        val unread = vm.badgeCount(app)
+        if (unread > 0 && !(vm.focusActive && vm.isDistracting(app))) {
+            Spacer(Modifier.width(8.dp))
+            Box(
+                Modifier.clip(RoundedCornerShape(50)).background(p.accent).padding(horizontal = 6.dp, vertical = 1.dp)
+                    .semantics { contentDescription = "$unread notification${if (unread == 1) "" else "s"}" },
+            ) {
+                Text(if (unread > 9) "9+" else "$unread", style = lStyle(10.sp, FontWeight.Bold, p.onAccent))
+            }
         }
     }
 }

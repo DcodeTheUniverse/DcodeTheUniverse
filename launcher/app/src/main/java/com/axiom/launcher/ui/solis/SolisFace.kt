@@ -113,7 +113,7 @@ fun SolisFace(
     }
 }
 
-private val Mood.animated: Boolean get() = this == Mood.IDLE || this == Mood.LISTENING || this == Mood.THINKING || this == Mood.WORKING
+private val Mood.animated: Boolean get() = this == Mood.IDLE || this == Mood.LISTENING || this == Mood.THINKING || this == Mood.WORKING || this == Mood.SPEAKING
 
 private val Mood.spoken: String
     get() = when (this) {
@@ -124,6 +124,7 @@ private val Mood.spoken: String
         Mood.PAUSED -> "paused"
         Mood.OFFLINE -> "offline"
         Mood.ERROR -> "something went wrong"
+        Mood.SPEAKING -> "speaking"
     }
 
 /**
@@ -140,6 +141,7 @@ private fun Mood.frameDelay(now: Long): Long = when (this) {
     Mood.LISTENING -> 33L
     Mood.THINKING -> 50L
     Mood.WORKING -> 40L
+    Mood.SPEAKING -> 45L
     else -> 1000L
 }
 
@@ -207,6 +209,14 @@ internal fun faceFrame(state: Mood, t: Long, animate: Boolean): FloatArray {
             dot(8, 2); dot(7, 3); dot(8, 4)
             dot(3, 7); dot(4, 6); dot(5, 7); dot(6, 6); dot(7, 7)
         }
+        Mood.SPEAKING -> {
+            eyes(2, 3)
+            // A mouth that opens and closes in syllable-like beats.
+            val open = if (animate) (((sin(t / 95.0) + sin(t / 61.0 + 1.7)) * 0.5 + 1) * 1.1).toInt().coerceIn(0, 2) else 1
+            mouth(4, 6)
+            if (open >= 1) { mouth(3, 7, row = 7, v = 0.9f) }
+            if (open >= 2) mouth(4, 6, row = 8, v = 0.8f)
+        }
     }
     return f
 }
@@ -240,6 +250,8 @@ internal fun facePose(state: Mood, t: Long, animate: Boolean): Pose {
         Mood.PAUSED -> Pose(-0.05f, -0.16f)
         Mood.OFFLINE -> Pose(-0.2f, -0.08f)
         Mood.ERROR -> Pose(0.03f, 0f, roll = 0.1f)
+        Mood.SPEAKING -> if (!animate) Pose(0f, 0f, lean = 1.03f)
+            else Pose((0.04 * sin(s * 0.9)).toFloat(), (0.02 * sin(s * 3.1)).toFloat(), lean = 1.03f)
     }
 }
 
@@ -419,4 +431,5 @@ fun Mood.caption(): String = when (this) {
     Mood.PAUSED -> "Paused"
     Mood.OFFLINE -> "Offline"
     Mood.ERROR -> "Hit a problem"
+    Mood.SPEAKING -> "Speaking…"
 }

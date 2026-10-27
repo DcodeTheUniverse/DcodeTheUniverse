@@ -122,6 +122,8 @@ data class RouteQuery(
     /** Stable key (thread id) for deterministic trial bucketing. */
     val trialKey: String? = null,
     val allowUnknownPrice: Boolean = false,
+    /** Use a model from any other vendor family when one is eligible (second opinions); else fall back with a note. */
+    val excludeFamily: String? = null,
 )
 
 data class RouteDecision(
@@ -195,7 +197,7 @@ class Router(
         // User override: honored only if it clears every hard constraint.
         q.pinned?.let { ref ->
             val m = models.firstOrNull { it.ref == ref }
-            if (m != null && hardOk(m, pinned = true)) {
+            if (m != null && hardOk(m, pinned = true) && (q.excludeFamily == null || m.family != q.excludeFamily)) {
                 val est = m.estimateCost(q.estInputTokens, q.estOutputTokens)
                 val fb = ranked(models.filter { it.ref != ref && hardOk(it, false) }, q, tierPolicy, priors, bonuses).take(2).map { it.model }
                 return RouteDecision(m, fb, effortFor(q, tierPolicy, m), est,
@@ -206,10 +208,15 @@ class Router(
                 (if (m == null) "not in the catalog" else excluded.keys.lastOrNull() ?: "not eligible")
         }
 
-        val eligible = models.filter { hardOk(it, false) }
+        var eligible = models.filter { hardOk(it, false) }
         if (eligible.isEmpty()) {
             val why = excluded.entries.sortedByDescending { it.value }.take(4).joinToString { "${it.value} ${it.key}" }
             throw NoEligibleModel("No model fits this ${q.role.name.lowercase()} call (${q.tier.label}): $why", excluded)
+        }
+        q.excludeFamily?.let { fam ->
+            val others = eligible.filter { it.family != fam }
+            if (others.isNotEmpty()) { eligible = others; explanation += "independent of $fam: a model from another maker" }
+            else explanation += "no eligible model outside $fam, so this one isn't independent"
         }
         val floor = if (q.role == CallRole.NARRATOR) 0.0 else tierPolicy.minQuality
         var pool = eligible.filter { quality(it, q.tier, priors) >= floor }
